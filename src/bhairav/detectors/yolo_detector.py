@@ -1,7 +1,8 @@
 """Real CCTV path: YOLO detection + ByteTrack via ultralytics.
 
 Requires `pip install ultralytics` (pulls in PyTorch). Lazy-imported so the
-rest of Phase 1 works without it.
+rest of Phase 1 works without it. When `mediapipe` and the pose landmarker
+model are present, skeletons are attached to person tracks automatically.
 """
 from __future__ import annotations
 
@@ -23,6 +24,15 @@ class YoloDetector(Detector):
         self.cfg = model_cfg
         self.model = YOLO(model_cfg.name)
         self._fps = 30.0
+        # Optional pose estimation: enabled only when mediapipe + the model
+        # file are available, so the pipeline degrades gracefully.
+        self._pose = None
+        try:
+            from ..pose.mediapipe_model import MediaPipePoseModel, pose_model_path
+            if pose_model_path().exists():
+                self._pose = MediaPipePoseModel(min_detection_confidence=0.3)
+        except Exception:
+            self._pose = None
 
     @property
     def fps(self) -> float:
@@ -64,7 +74,10 @@ class YoloDetector(Detector):
                     label = COCO_NAMES.get(int(cls), "object")
                     tracks.append(Track(int(tid), tuple(float(v) for v in box), label,
                                           float(conf), int(cls)))
-            yield FrameState(frame_id=i, timestamp=i / self._fps, tracks=tracks,
-                             frame_w=frame.shape[1], frame_h=frame.shape[0], frame=frame)
+            st = FrameState(frame_id=i, timestamp=i / self._fps, tracks=tracks,
+                            frame_w=frame.shape[1], frame_h=frame.shape[0], frame=frame)
+            if self._pose is not None:
+                st.poses = self._pose.estimate(st)
+            yield st
             i += 1
         cap.release()

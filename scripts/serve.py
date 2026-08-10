@@ -48,7 +48,7 @@ def _jpeg_b64(frame: np.ndarray, scale: float = 0.5) -> str:
 
 
 def run_stream(cfg, source, detector, engine, hub, store, evidence_dir, stop,
-               stats, webhook_url):
+               stats, webhook_url, recent_alerts):
     """Pipeline loop on a background thread; pushes frames+alerts to the hub.
 
     `store` is the SAME EvidenceStore the API reads from, so the recorder's
@@ -76,6 +76,8 @@ def run_stream(cfg, source, detector, engine, hub, store, evidence_dir, stop,
         for a in alerts:
             recorder.on_alert(a, state.frame, state=state)
             log.write(a)
+            recent_alerts.append(a.to_dict())
+            del recent_alerts[:-100]   # keep a bounded rolling feed
             if a.severity.value == "red":
                 webhook_notify(webhook_url, a.to_dict())
         # close events that have gone quiet (respects post_sec)
@@ -114,6 +116,11 @@ def main() -> int:
     ap.add_argument("--host", default=None)
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--evidence", default=None, help="evidence dir (default: cfg)")
+    ap.add_argument("--evidence-key", default=None,
+                    help="base64 32-byte AES-256 key for evidence at rest "
+                         "(default: $BHAIRAV_EVIDENCE_KEY)")
+    ap.add_argument("--tls-cert", default=None, help="TLS certificate file (PEM)")
+    ap.add_argument("--tls-key", default=None, help="TLS private key file (PEM)")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -127,41 +134,94 @@ def main() -> int:
     # assemble the app
     from bhairav.backend.audit import AuditLog
     from bhairav.backend.evidence import EvidenceStore
+    from bhairav.backend.hardening import is_loopback, load_evidence_key
     from bhairav.backend.server import LiveHub, PipelineStats, create_app
-    from bhairav.backend.users import UserStore
+    from bhairav.backend.users import DEFAULT_USERS, UserStore
+
+    # ---- startup security posture ---------------------------------------
+    loopback = is_loopback(host)
+    if secret in ("", "dev-secret-change-me") and not loopback and not os.environ.get("BHAIRAV_ALLOW_DEFAULT_SECRET"):
+        raise SystemExit(
+            "REFUSING TO START: default BHAIRAV secret on a non-loopback interface.\n"
+            "  Set BHAIRAV_SECRET to a long random value (or BHAIRAV_ALLOW_DEFAULT_SECRET=1 for local dev only).")
+
+    users = UserStore(cfg.backend.users_file)
+    weak = [d["username"] for d in DEFAULT_USERS
+            if users.get(d["username"]) and users._verify_password(
+                d["password"], users.get(d["username"])["salt"],
+                users.get(d["username"])["iterations"], users.get(d["username"])["hash"])]
+    if weak:
+        msg = (f"demo accounts still use default passwords: {', '.join(weak)}. "
+               f"Change them via POST /api/users/{{user}}/password.")
+        if not loopback and not os.environ.get("BHAIRAV_ALLOW_DEFAULT_PASSWORDS"):
+            raise SystemExit("REFUSING TO START: " + msg)
+        print("[security] WARNING: " + msg)
+
+    # ---- evidence encryption at rest (AES-256-GCM) -----------------------
+    evidence_key = load_evidence_key(args.evidence_key or os.environ.get("BHAIRAV_EVIDENCE_KEY"))
+    if cfg.evidence.encrypt and evidence_key is None:
+        raise SystemExit(
+            "evidence.encrypt is true but no key is set. Set BHAIRAV_EVIDENCE_KEY "
+            "(base64 32-byte key, e.g. from: python -c \"import os,base64;"
+            "print(base64.b64encode(os.urandom(32)).decode())\") or pass --evidence-key.")
 
     audit = AuditLog(Path(evidence_dir) / "audit.jsonl")
     store = EvidenceStore(evidence_dir, camera=cfg.evidence.camera,
                           fps=detector.fps, blur_faces=cfg.evidence.blur_faces,
-                          encrypt=cfg.evidence.encrypt,
+                          encrypt=cfg.evidence.encrypt, key=evidence_key,
                           max_events=cfg.evidence.max_events)
-    users = UserStore(cfg.backend.users_file)
     stats = PipelineStats()
     webhook_url = cfg.backend.webhook_url
     hub = LiveHub()
+    recent_alerts: list[dict] = []
+
+    # ---- face search (Phase 6): find a person in evidence by photo --------
+    from bhairav.backend.face_search import build_face_service
+    try:
+        face = build_face_service(store)
+        print("[security] face search: ENABLED (gallery + evidence face index)")
+    except RuntimeError as exc:
+        print("[warn] face search disabled:", exc)
+        face = None
+
+    # ---- vehicle watchlist (Phase 6: ANPR) --------------------------------
+    from bhairav.backend.anpr import PlateRegistry
+    plates = PlateRegistry(Path(evidence_dir).parent / "plates.json")
+    for rule in engine.rules:
+        if getattr(rule, "name", None) == "stolen_vehicle":
+            rule.registry = plates   # one registry shared with the REST API
+    print("[security] vehicle watchlist: ENABLED (ANPR on synthetic plates)")
+
     app = create_app(store, audit, secret=secret, hub=hub, users=users,
-                     stats=stats, webhook_url=webhook_url)
+                     stats=stats, webhook_url=webhook_url, face=face,
+                     plates=plates, recent_alerts=recent_alerts)
 
     # run the pipeline on a background thread
     stop = threading.Event()
     t = threading.Thread(target=run_stream, args=(cfg, args.source, detector,
                                                   engine, hub, store, evidence_dir,
-                                                  stop, stats, webhook_url),
+                                                  stop, stats, webhook_url,
+                                                  recent_alerts),
                          daemon=True)
     t.start()
 
     import uvicorn
-    print(f"BHAIRAV Phase 5 server -> http://{host}:{port}  (evidence: {evidence_dir})")
-    print(f"Dashboard: http://{host}:{port}/dashboard/")
+    scheme = "https" if (args.tls_cert and args.tls_key) else "http"
+    print(f"BHAIRAV Phase 5 server -> {scheme}://{host}:{port}  (evidence: {evidence_dir})")
+    print(f"Dashboard: {scheme}://{host}:{port}/dashboard/")
+    if cfg.evidence.encrypt:
+        print("[security] evidence encryption at rest: ENABLED (AES-256-GCM)")
     print("Login (POST /auth/login with username + password):")
     for u in users.public_view():
         pw = "admin123" if u["username"] == "admin" else f"{u['username']}123"
         print(f"  {u['username']:9s} / {pw:<12s} role={u['role']}")
     if webhook_url:
         print(f"Webhook: red alerts -> {webhook_url}")
-    print(f"Live stream: ws://{host}:{port}/ws/stream?token=<token>")
+    print(f"Live stream: {scheme.replace('https', 'wss').replace('http', 'ws')}://{host}:{port}/ws/stream?token=<token>")
+    print("[security] login rate limit: 10/min per IP; change defaults via config")
     try:
-        uvicorn.run(app, host=host, port=port, log_level="warning")
+        uvicorn.run(app, host=host, port=port, log_level="warning",
+                    ssl_certfile=args.tls_cert, ssl_keyfile=args.tls_key)
     except KeyboardInterrupt:
         pass
     finally:

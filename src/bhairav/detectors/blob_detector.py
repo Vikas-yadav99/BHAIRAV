@@ -55,7 +55,9 @@ class BlobDetector(Detector):
         px = pose.x * self.width
         py = pose.y * self.height
         if pose.person.size == "vehicle":
-            bw, bh = 0.09 * self.width, 0.045 * self.height
+            # big enough that the 10-char plate text fits at the renderer's
+            # font scale without glyphs touching (backend/anpr templates match)
+            bw, bh = 0.13 * self.width, 0.060 * self.height
         else:
             bw, bh = 0.034 * self.width, 0.082 * self.height
             if pose.person.role == "fall" and pose.progress > 0:
@@ -113,9 +115,31 @@ class BlobDetector(Detector):
         py = int(pose.y * self.height)
         shade = 60 + (pose.person.pid * 13) % 40
         if pose.person.size == "vehicle":
-            bw, bh = int(0.09 * self.width), int(0.045 * self.height)
+            bw, bh = int(0.13 * self.width), int(0.060 * self.height)
             cv2.rectangle(img, (px - bw // 2, py - bh), (px + bw // 2, py), (shade, shade, shade + 12), -1)
             cv2.rectangle(img, (px - bw // 2, py - bh), (px + bw // 2, py), (40, 44, 50), 2)
+            plate = pose.person.special.get("plate")
+            if plate:
+                # white plate (no border - keeps OCR segmentation clean) with
+                # chars drawn one-by-one at a fixed advance so they never
+                # touch; region matches backend/anpr.plate_region()
+                rx1 = px - int(bw * 0.425)
+                ry1 = py - int(bh * 0.70)
+                rw, rh = int(bw * 0.85), int(bh * 0.65)
+                cv2.rectangle(img, (rx1, ry1), (rx1 + rw, ry1 + rh), (228, 228, 232), -1)
+                # thin strokes (1px) keep glyph interiors open at this size;
+                # must mirror backend/anpr.PlateReader._build_templates
+                scale, thickness = 0.5, 1
+                gap = 1
+                ty = ry1 + int(rh * 0.82)
+                widths = [cv2.getTextSize(ch, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0][0]
+                          for ch in plate]
+                tw = sum(widths) + gap * (len(plate) - 1)
+                tx = rx1 + max(2, (rw - tw) // 2)
+                for i, ch in enumerate(plate):
+                    cv2.putText(img, ch, (tx + sum(widths[:i]) + gap * i, ty),
+                                cv2.FONT_HERSHEY_SIMPLEX, scale,
+                                (20, 20, 24), thickness, cv2.LINE_AA)
         else:
             bw, bh = int(0.034 * self.width), int(0.082 * self.height)
             f = pose.progress if pose.person.role == "fall" else 0.0

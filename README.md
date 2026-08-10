@@ -14,6 +14,11 @@ in login (real password accounts, not pick-a-role), adds an evidence workflow
 (status / analyst notes / ZIP export), an ops Status page, in-browser clip
 playback, webhook notifications for red alerts, and hardens auth (token
 revocation on lock, brute-force lockout, hash-free API responses).
+Phase 6 hardening adds TLS, login rate limiting, request-size caps, forced
+non-default secrets/passwords outside localhost, and vendored (offline) React;
+the **face search** module (YuNet + SFace, ONNX, no new deps) lets you find a
+person in evidence by uploading a photo; the **ANPR / stolen-vehicle watchlist**
+reads license plates and alerts when a watched plate appears.
 
 > Phase 0 (Python → NumPy → OpenCV → YOLO) is the learning track, done in parallel.
 > When you finish it, install `ultralytics` and the exact same pipeline runs on real
@@ -42,8 +47,23 @@ python scripts/serve.py
 Run the tests:
 
 ```bash
-python -m pytest -q                  # 112 tests (Phases 1-5)
+python -m pytest -q                  # 137 tests (Phases 1-6)
 ```
+
+### Face search, ANPR and models
+
+```bash
+# One-time: download YuNet (face detect), SFace (face embed) and
+# pose_landmarker_full.task into models/ with SHA-256 verification
+python scripts/fetch_models.py
+
+# Generate a self-signed TLS cert (serves the dashboard over https://)
+python scripts/make_cert.py --out-dir certs
+```
+
+Face search and plate reading work **without any extra pip packages** (ONNX
+models run through OpenCV; plates are read with template OCR). Only the real
+CCTV path needs `pip install ultralytics mediapipe`.
 
 ## Phase 3-5 - API & evidence
 
@@ -65,6 +85,15 @@ python -m pytest -q                  # 112 tests (Phases 1-5)
 | `/api/evidence/expire` | POST | evidence_delete | retention run |
 | `/api/audit` | GET | audit | tamper-evident audit trail |
 | `/api/alerts/recent` | GET | alerts | recent alert feed |
+| `/api/search/register` | POST | evidence_read | add a person to the face gallery (photo upload + name) |
+| `/api/search/subjects` | GET | evidence_read | list gallery subjects |
+| `/api/search/subjects/{name}` | DELETE | audit | remove a subject (audited) |
+| `/api/search/index` | POST | evidence_read | (re)build the face-index over evidence snapshots |
+| `/api/search/query` | POST | evidence_read | find evidence frames matching a subject photo |
+| `/api/search/status` | GET | evidence_read | index size / last build / model status |
+| `/api/vehicles/watch` | GET/POST | audit | list / add a stolen-vehicle plate (watchlist) |
+| `/api/vehicles/watch/{plate}` | DELETE | audit | remove from watchlist (audited) |
+| `/api/vehicles/reads` | GET | evidence_read | recent plate reads (plate, vehicle track, time, confidence) |
 | `/api/users` | GET/POST | users | admin: list / create accounts |
 | `/api/users/{u}` | DELETE | users | admin: delete account |
 | `/api/users/{u}/lock` | POST | users | admin: lock / unlock (revokes live tokens) |
@@ -90,6 +119,26 @@ Tokens are HMAC-signed, 12h TTL. Evidence events are stored as
 (wrong key -> unreadable). Face blur uses the pose nose keypoint (falls back to
 the bbox top band) so stored evidence is privacy-safe by default. Audit log
 entries are hash-chained: any tamper or deletion is detected by `verify()`.
+
+### Security hardening (Phase 6)
+
+- **Encryption at rest actually works in the server now.** `serve.py` reads
+  `BHAIRAV_EVIDENCE_KEY` / `--evidence-key` (base64 32-byte AES-256 key) and
+  refuses to start with `evidence.encrypt: true` but no key — previously the
+  server crashed or silently ran unencrypted.
+- **TLS.** `python scripts/make_cert.py --out-dir certs` then
+  `python scripts/serve.py --tls-cert certs/cert.pem --tls-key certs/key.pem`
+  serves everything over HTTPS (tokens and evidence clips no longer travel in
+  cleartext).
+- **Startup guards.** Outside loopback (and without `BHAIRAV_ALLOW_DEFAULT_*`),
+  the server refuses to start with the default `dev-secret-change-me` secret or
+  default passwords — no more minting an admin token with known credentials.
+- **Login rate limiting** (per-IP + per-account sliding window) and a request
+  body size cap on top of the existing per-account brute-force lockout.
+- **No CDN.** React + Babel are vendored under `dashboard/vendor/` (offline,
+  no third-party supply chain at page load).
+- Local-only binding by default (`127.0.0.1`); pass `--host 0.0.0.0` to expose
+  (then TLS + non-default credentials are required).
 
 ```bash
 curl -s -X POST localhost:8000/auth/login -H "Content-Type: application/json"      -d '{"username":"admin","password":"admin123"}'
@@ -122,12 +171,59 @@ from the Phase 3 server, so `python scripts/serve.py` is a complete product:
   banner; the tab itself is hidden for lower roles.
 - **👥 Users** (admin) — create accounts (username/password/role), lock/unlock
   (revokes their live tokens), delete; never shows password material.
+- **🔍 Search** (evidence_read+) — register a suspect photo (YuNet detects the
+  face, SFace embeds it), then search the evidence index for matching frames:
+  upload a face, get every evidence snapshot it appears in ranked by
+  similarity, with per-frame confidence. The gallery is stored locally and
+  deleted subjects are audited.
+- **🚗 Vehicles** (audit+ for watchlist edits) — live ANPR: every plate read
+  appears in a table with its vehicle track and confidence; add a plate to the
+  stolen-vehicle watchlist and any subsequent read raises a red
+  **STOLEN-VEHICLE** alert (rule `stolen_vehicle`), captures evidence, and
+  badges the read in the UI.
 
 Role gating is enforced **twice**: the UI hides what the role can't do (Audit
 / Users tabs, status changes, download / export buttons) *and* the API returns
 401/403 server-side. Evidence snapshots and clips are fetched with the bearer
 token and rendered as blob URLs (plain `<img>`/`<a>` tags can't attach auth
 headers); blob URLs are revoked when the modal closes.
+
+## Face search: find a person in evidence by photo
+
+`src/bhairav/backend/face_search.py` implements recognition with two ONNX
+models that run on plain OpenCV — no torch/tf dependency:
+
+- **YuNet** (`face_detection_yunet_2023mar.onnx`, 232 KB) — face detection +
+  the 5 landmarks used for alignment.
+- **SFace** (`face_recognition_sface_2021dec.onnx`, 38 MB) — 128-d embedding.
+
+The embedding is computed from a deterministic box-fraction alignment (the
+same math `alignCrop` uses internally but without OpenCV's stateful jitter,
+which we measured flipping the score between runs). Match score is cosine
+similarity: same person ≈ 1.0, different person ≈ 0.1–0.2, threshold 0.5.
+
+The pipeline: register photo → detect + embed → face index built over every
+evidence snapshot (upscaled faces only, min size, one pass) → query a photo →
+ranked matches with per-frame confidence. Index and gallery live under
+`output/faces/` and are rebuilt on demand (`POST /api/search/index`).
+
+## Stolen-vehicle tracking: ANPR + watchlist
+
+`src/bhairav/backend/anpr.py`:
+
+- **PlateReader** — detects the plate rectangle inside a vehicle track's
+  bbox, binarizes, segments glyphs by ink projection, and template-matches
+  against a bundled OCR glyph set (trained on the same font the renderer
+  draws, so the demo is deterministic; the same seam accepts any OCR engine
+  such as PaddleOCR for real-world plates).
+- **PlateRegistry / stolen_vehicle rule** — watched plates live in
+  `config.yaml` (`rules.stolen_vehicle.watchlist`) and via the API; a read of
+  a watched plate fires a red alert with the plate in `details`, records
+  evidence, and is persisted to the reads log.
+
+Verified end-to-end: the demo scene renders a vehicle with plate
+`MH12AB1234`; the reader OCRs it with 100% accuracy across all 133 frames of
+the clip, and adding it to the watchlist fires the alert live.
 
 ## What fires in the demo scene (24 s, deterministic)
 
@@ -203,7 +299,16 @@ python scripts/run_demo.py --source 0
 
 The YOLO path uses `ultralytics` built-in **ByteTrack** (`bytetrack.yaml`) and
 detects COCO classes `[person, car, bus, truck]` (configurable in `config.yaml`
-under `model.classes`). Real pose is wired through `MediaPipePoseModel`.
+under `model.classes`). Real pose is wired through `MediaPipePoseModel` (Tasks
+API — mediapipe 1.0 removed the legacy `solutions` API) and auto-enables in
+`YoloDetector` when `models/pose_landmarker_full.task` is present.
+
+**Verified on real footage** (this repo, `output/real/vtest.avi` — a real CCTV
+clip): YOLOv8n + ByteTrack tracked 592 person detections (7 simultaneous) and
+240 vehicle detections with 16 stable track IDs across 120 frames; MediaPipe
+pose produced skeletons on the same frames the raw landmarker does. Real
+pose needs bodies roughly ≥100 px tall — low-res distant people are skipped,
+as with any landmarker.
 
 ## Config highlights (`config.yaml`)
 
@@ -224,8 +329,9 @@ under `model.classes`). Real pose is wired through `MediaPipePoseModel`.
 - ✅ Phase 5: real user accounts (PBKDF2), evidence workflow (status / notes /
      ZIP export), ops Status page, clip playback, webhook notifications,
      token revocation on lock, brute-force lockout, hash-free API responses
-- ✅ 112 passing tests (geometry, tracker, rules, classifiers, pose, privacy,
-     evidence, RBAC/audit, users, server incl. dashboard route)
+- ✅ 137 passing tests (geometry, tracker, rules, classifiers, pose, privacy,
+     evidence, RBAC/audit, users, server incl. dashboard route, hardening,
+     face search, ANPR)
 
 ## Phase 5 - what was added and why
 
@@ -253,9 +359,29 @@ that and adds the workflow a real command center needs:
   alerts are POSTed fire-and-forget (best-effort, never blocks the pipeline).
 - **UX** — in-browser clip playback in the evidence modal and an export button.
 
-## Next: Phase 6 (real cameras & scale)
+## Phase 6 - hardening, face search, ANPR (what was added and why)
 
-Wire the real YOLO + MediaPipe path (Phase 0 foundations), add multi-camera
-support to the dashboard (the evidence store already tags `camera`), and swap
-the file store for a real database. The API/WebSocket seams for all three
-already exist.
+- **Hardening** (`backend/hardening.py`) — evidence-key resolution that
+  actually works, TLS serving, loopback-aware startup guards, per-IP login
+  rate limiting and body-size caps, vendored React. Motivation: the product
+  was secure-by-design but shipped with a default secret, no TLS, and an
+  encryption switch that crashed the server.
+- **Face search** (`backend/face_search.py`) — the "find this person in the
+  footage" capability the presentation promised but the code never had.
+  Deterministic (fixed the OpenCV `alignCrop` nondeterminism that flipped
+  match scores between runs), threshold 0.5, verified same-person ≈ 1.0 vs
+  different-person ≈ 0.14.
+- **Stolen-vehicle watchlist** (`backend/anpr.py`, rule `stolen_vehicle`) —
+  plate OCR + watchlist alerts + dashboard tab. The tracker already followed
+  vehicles; now you can search them by plate.
+- **Real-footage verification** — installed `ultralytics` + `mediapipe` and
+  ran the actual YOLO + ByteTrack + pose path on a real CCTV clip; ported the
+  pose wrapper to mediapipe 1.0's Tasks API (the legacy API is gone) and
+  pinned the model file's SHA-256 in `scripts/fetch_models.py`.
+
+## Next: Phase 7 (real cameras & scale)
+
+Add multi-camera support to the dashboard (the evidence store already tags
+`camera`), swap the file store for a real database (PostgreSQL/MongoDB), and
+containerize with Docker + AWS deployment. The API/WebSocket seams for all
+three already exist.

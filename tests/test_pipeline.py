@@ -4,10 +4,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import pytest
 import numpy as np
 
 from bhairav.config import load_config
 from bhairav.pipeline import build_engine, make_detector, run_pipeline
+
+
+def _IMPORTABLE(mod: str) -> bool:
+    try:
+        __import__(mod)
+        return True
+    except Exception:
+        return False
 
 
 def test_full_pipeline_fires_all_alert_types():
@@ -52,6 +61,7 @@ def test_detector_frames_are_valid_images_with_poses():
     assert all(len(p.keypoints) == 17 for p in state.poses)
 
 
+@pytest.mark.skipif(_IMPORTABLE("ultralytics"), reason="ultralytics installed here; error path covered on fresh envs")
 def test_yolo_without_ultralytics_raises_clean_error():
     cfg = load_config("config.yaml")
     import pytest

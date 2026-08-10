@@ -11,12 +11,14 @@ from __future__ import annotations
 
 from .audit import AuditLog
 from .evidence import EvidenceStore, EventRecorder, PreEventBuffer
+from .hardening import RateLimiter, is_loopback, load_evidence_key
 from .privacy import Encryptor, FaceBlur
 from .rbac import TOKEN_TTL_SEC, Permissions, Role, authorize, issue_token, validate_token
 from .users import UserError, UserStore
 
 __all__ = [
     "AuditLog",
+    "RateLimiter",
     "Encryptor",
     "EvidenceStore",
     "EventRecorder",
@@ -27,6 +29,8 @@ __all__ = [
     "TOKEN_TTL_SEC",
     "UserError",
     "UserStore",
+    "is_loopback",
+    "load_evidence_key",
     "authorize",
     "issue_token",
     "validate_token",

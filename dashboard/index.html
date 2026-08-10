@@ -4,9 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BHAIRAV Command Center</title>
-<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<!-- vendored locally (no CDN / supply-chain dependency): dashboard/vendor/ -->
+<script crossorigin src="vendor/react.production.min.js"></script>
+<script crossorigin src="vendor/react-dom.production.min.js"></script>
+<script src="vendor/babel.min.js"></script>
 <style>
 :root {
   --bg: #0b1120; --panel: #0f172a; --border: #1e293b; --border2: #16213a;
@@ -109,6 +110,16 @@ main { flex: 1; padding: 20px; max-width: 1400px; width: 100%; margin: 0 auto; }
 .ev-msg { color: var(--dim); font-size: 12px; margin-top: 6px; line-height: 1.4; }
 .ev-flag { font-size: 11px; color: var(--dim); margin-top: 4px; }
 .count { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+
+/* ---------- face search ---------- */
+.search-grid { display: grid; grid-template-columns: 340px 1fr; gap: 14px; align-items: start; margin-bottom: 18px; }
+@media (max-width: 900px) { .search-grid { grid-template-columns: 1fr; } .search-grid .ev-card[style*="span 2"] { grid-column: auto !important; } }
+.result-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.result-card { display: flex; align-items: center; gap: 10px; background: #0d1526; border: 1px solid var(--border2);
+  border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+.result-card .sev-badge { flex-shrink: 0; }
+.sim-bar { flex: 1; height: 6px; background: #1e293b; border-radius: 999px; overflow: hidden; min-width: 60px; }
+.sim-fill { height: 100%; background: linear-gradient(90deg, var(--cyan), var(--green)); }
 
 /* ---------- modal ---------- */
 .modal-back { position: fixed; inset: 0; background: rgba(4,8,16,.8); display: flex; align-items: center;
@@ -795,6 +806,295 @@ function UsersTab({ token, me }) {
   );
 }
 
+// ---------- Search tab (face-based person search, Phase 6) ----------
+function fileToB64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1]);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+function SearchTab({ token, role }) {
+  const isAdmin = role === 'admin';
+  const [status, setStatus] = useState(null);
+  const [statusErr, setStatusErr] = useState('');
+  const [queryImg, setQueryImg] = useState(null);
+  const [queryB64, setQueryB64] = useState('');
+  const [threshold, setThreshold] = useState(0.55);
+  const [results, setResults] = useState(null);
+  const [err, setErr] = useState('');
+  const [subjects, setSubjects] = useState(null);
+  const [regName, setRegName] = useState('');
+  const [regImg, setRegImg] = useState(null);
+  const [regB64, setRegB64] = useState('');
+  const [regNotes, setRegNotes] = useState('');
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    api(token).get('/api/search/status').then(setStatus)
+      .catch(() => setStatusErr('Face search unavailable: models not installed (run scripts/fetch_models.py).'));
+  }, [token]);
+
+  async function loadSubjects() {
+    try { setSubjects((await api(token).get('/api/search/subjects')).subjects || []); }
+    catch (_) { setSubjects([]); }
+  }
+  useEffect(() => { loadSubjects(); }, [token]);
+
+  async function runQuery() {
+    setErr(''); setResults(null);
+    if (!queryB64) { setErr('Upload a photo of the person first.'); return; }
+    try {
+      const r = await fetch('/api/search/query', { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ image_b64: queryB64, top_k: 8, threshold: Number(threshold) }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'HTTP ' + r.status);
+      setResults(d);
+    } catch (ex) { setErr(String(ex.message || ex)); }
+  }
+
+  async function register(e) {
+    e.preventDefault(); setErr(''); setMsg('');
+    if (!regB64) { setErr('Upload a clear face photo.'); return; }
+    try {
+      const r = await fetch('/api/search/register', { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ name: regName, image_b64: regB64, notes: regNotes }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'HTTP ' + r.status);
+      setMsg('Registered ' + d.name); setRegName(''); setRegNotes(''); setRegImg(null); setRegB64('');
+      loadSubjects();
+      if (status) setStatus({ ...status, gallery_subjects: (status.gallery_subjects || 0) + 1 });
+    } catch (ex) { setErr(String(ex.message || ex)); }
+  }
+
+  async function removeSubject(name) {
+    if (!confirm('Remove ' + name + ' from the gallery? This is audited.')) return;
+    try {
+      const r = await fetch('/api/search/subjects/' + encodeURIComponent(name), { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      loadSubjects();
+    } catch (ex) { setErr(String(ex.message || ex)); }
+  }
+
+  async function rebuildIndex() {
+    setMsg('Indexing evidence faces… (may take a moment)');
+    try {
+      const r = await fetch('/api/search/index', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'HTTP ' + r.status);
+      setMsg('Indexed ' + d.indexed_events + ' events with faces (' + d.total_events + ' total scanned)');
+      if (status) setStatus({ ...status, index: d });
+    } catch (ex) { setErr(String(ex.message || ex)); }
+  }
+
+  const simPct = s => Math.round((s || 0) * 100);
+
+  return (
+    <div>
+      {statusErr && <div className="err">{statusErr}</div>}
+      <div className="search-row">
+        <span className="pill">🔎 Person search — face match against gallery + evidence</span>
+        {status && <span className="pill">gallery: <b>{status.gallery_subjects}</b> subjects · evidence index: <b>{status.index.total_embeddings}</b> embeddings / {status.index.events_indexed} events</span>}
+        {isAdmin && <button className="btn btn-ghost" onClick={rebuildIndex}>🔁 re-index evidence faces</button>}
+      </div>
+      <div className="search-grid">
+        <div className="ev-card" style={{ cursor: 'default' }}>
+          <div className="ev-body">
+            <div className="ev-rule">🔍 Search by photo</div>
+            <div style={{ margin: '10px 0' }}>
+              <input type="file" accept="image/*" onChange={async e => { const f = e.target.files[0]; if (!f) return; const b = await fileToB64(f); setQueryB64(b); setQueryImg('data:image/jpeg;base64,' + b); }} />
+            </div>
+            {queryImg && <img src={queryImg} alt="query" style={{ width: '100%', maxHeight: 170, objectFit: 'contain', background: '#000', borderRadius: 8, marginBottom: 10 }} />}
+            <div className="field">
+              <label>Similarity threshold</label>
+              <select value={threshold} onChange={e => setThreshold(e.target.value)}>
+                <option value="0.65">strict (0.65) — fewer, more certain</option>
+                <option value="0.55">balanced (0.55)</option>
+                <option value="0.45">lenient (0.45) — more candidates</option>
+              </select>
+            </div>
+            <button className="btn btn-primary" onClick={runQuery}>Search</button>
+            {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
+          </div>
+        </div>
+        <div className="ev-card" style={{ cursor: 'default', gridColumn: 'span 2' }}>
+          <div className="ev-body">
+            <div className="ev-rule">Results</div>
+            {results === null && <div className="feed-empty">Upload a photo and press Search. Matches come back with a similarity score.</div>}
+            {results && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <b style={{ color: 'var(--dim)' }}>Gallery subjects</b>
+                  {results.subjects.length === 0
+                    ? <div className="muted" style={{ fontSize: 13 }}>No gallery match above threshold.</div>
+                    : <div className="result-list">{results.subjects.map(s => (
+                        <div className="result-card" key={s.name}>
+                          <b>{s.name}</b>
+                          <div className="sim-bar"><div className="sim-fill" style={{ width: simPct(s.similarity) + '%' }} /></div>
+                          <span className="muted">{simPct(s.similarity)}% match</span>
+                        </div>
+                      ))}</div>}
+                </div>
+                <div>
+                  <b style={{ color: 'var(--dim)' }}>Evidence appearances</b>
+                  {results.evidence.length === 0
+                    ? <div className="muted" style={{ fontSize: 13 }}>No evidence events above threshold.</div>
+                    : <div className="result-list">{results.evidence.map(ev => (
+                        <div className="result-card" key={ev.event_id}>
+                          <span className="sev-badge" style={sevStyle(ev.severity)}>{ev.severity.toUpperCase()}</span>
+                          <span style={{ fontWeight: 700 }}>{ev.rule} <span className="muted">· {ev.event_id}</span></span>
+                          <div className="sim-bar"><div className="sim-fill" style={{ width: simPct(ev.similarity) + '%' }} /></div>
+                          <span className="muted">{simPct(ev.similarity)}% · t={ev.timestamp.toFixed(1)}s</span>
+                        </div>
+                      ))}</div>}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        {isAdmin && (
+          <div className="ev-card" style={{ cursor: 'default' }}>
+            <div className="ev-body">
+              <div className="ev-rule">＋ Register subject (admin)</div>
+              <form onSubmit={register} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <input type="text" placeholder="name (missing person / POI)" value={regName} onChange={e => setRegName(e.target.value)} style={{ background: '#0d1526', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px' }} />
+                <input type="file" accept="image/*" onChange={async e => { const f = e.target.files[0]; if (!f) return; const b = await fileToB64(f); setRegB64(b); setRegImg('data:image/jpeg;base64,' + b); }} />
+                {regImg && <img src={regImg} alt="register" style={{ width: '100%', maxHeight: 130, objectFit: 'contain', background: '#000', borderRadius: 8 }} />}
+                <input type="text" placeholder="notes (optional)" value={regNotes} onChange={e => setRegNotes(e.target.value)} style={{ background: '#0d1526', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px' }} />
+                <button className="btn btn-primary">Register</button>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="stat-col">
+        <h3>Registered subjects</h3>
+        {subjects === null ? <div className="muted" style={{ fontSize: 13 }}>Loading…</div> :
+          subjects.length === 0 ? <div className="feed-empty">No subjects registered yet.</div> :
+          <table className="tbl">
+            <thead><tr><th>Name</th><th>Photos</th><th>Registered</th><th>Notes</th>{isAdmin && <th></th>}</tr></thead>
+            <tbody>
+              {subjects.map(s => (
+                <tr key={s.name}>
+                  <td style={{ fontWeight: 700 }}>{s.name}</td>
+                  <td>{s.embeddings}</td>
+                  <td className="muted">{new Date(s.created * 1000).toLocaleString()}</td>
+                  <td className="muted">{s.notes || '—'}</td>
+                  {isAdmin && <td><button className="del-btn" onClick={() => removeSubject(s.name)}>✕ remove</button></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>}
+      </div>
+      {msg && <div style={{ color: 'var(--green)', fontSize: 13, marginTop: 12 }}>{msg}</div>}
+    </div>
+  );
+}
+
+// ---------- Vehicles tab (stolen-vehicle ANPR watchlist, Phase 6) ----------
+function VehiclesTab({ token, role }) {
+  const isAdmin = role === 'admin';
+  const [watch, setWatch] = useState(null);
+  const [reads, setReads] = useState([]);
+  const [plate, setPlate] = useState('');
+  const [reason, setReason] = useState('');
+  const [err, setErr] = useState('');
+  const [msg, setMsg] = useState('');
+
+  async function load() {
+    try {
+      setWatch((await api(token).get('/api/vehicles/watch')).watch || []);
+      setReads((await api(token).get('/api/vehicles/reads?limit=40')).reads || []);
+    } catch (_) { setErr('Vehicle watchlist unavailable (ANPR not enabled on this server).'); }
+  }
+  useEffect(() => { load(); }, [token]);
+
+  async function add(e) {
+    e.preventDefault(); setErr(''); setMsg('');
+    try {
+      const r = await fetch('/api/vehicles/watch', { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ plate, reason }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'HTTP ' + r.status);
+      setMsg('Watching ' + d.plate); setPlate(''); setReason('');
+      load();
+    } catch (ex) { setErr(String(ex.message || ex)); }
+  }
+
+  async function remove(p) {
+    if (!confirm('Stop watching ' + p + '? This is audited.')) return;
+    try {
+      const r = await fetch('/api/vehicles/watch/' + encodeURIComponent(p), { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      load();
+    } catch (ex) { setErr(String(ex.message || ex)); }
+  }
+
+  return (
+    <div>
+      {err && <div className="err">{err}</div>}
+      <div className="search-row">
+        <span className="pill">🚗 Stolen-vehicle watchlist — ANPR reads every plate it sees</span>
+        {watch && <span className="pill">watching <b>{watch.length}</b> plate{watch.length === 1 ? '' : 's'}</span>}
+      </div>
+      <div className="search-grid">
+        <div className="ev-card" style={{ cursor: 'default' }}>
+          <div className="ev-body">
+            <div className="ev-rule">Watchlist</div>
+            {watch === null ? <div className="muted" style={{ fontSize: 13 }}>Loading…</div> :
+              watch.length === 0 ? <div className="feed-empty">No plates watched yet. Add a stolen plate below.</div> :
+              <table className="tbl">
+                <thead><tr><th>Plate</th><th>Reason</th><th>Added</th>{isAdmin && <th></th>}</tr></thead>
+                <tbody>
+                  {watch.map(w => (
+                    <tr key={w.plate}>
+                      <td style={{ fontWeight: 700 }}>{w.plate}</td>
+                      <td className="muted">{w.reason || '—'}</td>
+                      <td className="muted">{new Date(w.added * 1000).toLocaleString()}</td>
+                      {isAdmin && <td><button className="del-btn" onClick={() => remove(w.plate)}>✕ unwatch</button></td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>}
+          </div>
+        </div>
+        <div className="ev-card" style={{ cursor: 'default', gridColumn: 'span 2' }}>
+          <div className="ev-body">
+            <div className="ev-rule">Recent plate reads</div>
+            {reads.length === 0
+              ? <div className="feed-empty">No plates read yet — the demo car (MH12AB1234) drives through the scene early on.</div>
+              : <div className="result-list">{reads.map((r, i) => (
+                  <div className="result-card" key={i}>
+                    <b>{r.plate}</b>
+                    <span className="muted">t={r.ts.toFixed(1)}s</span>
+                    {watch && watch.some(w => w.plate === r.plate) && <span className="sev-badge" style={sevStyle('red')}>WATCHED</span>}
+                  </div>
+                ))}</div>}
+          </div>
+        </div>
+        {isAdmin && (
+          <div className="ev-card" style={{ cursor: 'default' }}>
+            <div className="ev-body">
+              <div className="ev-rule">＋ Watch a plate (admin)</div>
+              <form onSubmit={add} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <input type="text" placeholder="plate, e.g. MH12AB1234" value={plate} onChange={e => setPlate(e.target.value.toUpperCase())} style={{ background: '#0d1526', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px' }} />
+                <input type="text" placeholder="reason (stolen / suspect vehicle…)" value={reason} onChange={e => setReason(e.target.value)} style={{ background: '#0d1526', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px' }} />
+                <button className="btn btn-primary">Watch plate</button>
+              </form>
+              {msg && <div style={{ color: 'var(--green)', fontSize: 13, marginTop: 10 }}>{msg}</div>}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------- App shell ----------
 function App() {
   const [auth, setAuth] = useState(() => {
@@ -818,6 +1118,8 @@ function App() {
     { id: 'evidence', label: '🗂 Evidence' },
     { id: 'status', label: '📊 Status' },
   ];
+  if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'search', label: '🔎 Search' });
+  if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'vehicles', label: '🚗 Vehicles' });
   if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'audit', label: '🛡 Audit' });
   if (auth.role === 'admin') tabs.push({ id: 'users', label: '👥 Users' });
 
@@ -840,6 +1142,8 @@ function App() {
         {tab === 'live' && <LiveTab token={auth.token} />}
         {tab === 'evidence' && <EvidenceTab token={auth.token} role={auth.role} />}
         {tab === 'status' && <StatusTab token={auth.token} role={auth.role} />}
+        {tab === 'search' && <SearchTab token={auth.token} role={auth.role} />}
+        {tab === 'vehicles' && <VehiclesTab token={auth.token} role={auth.role} />}
         {tab === 'audit' && <AuditTab token={auth.token} />}
         {tab === 'users' && <UsersTab token={auth.token} me={auth.username} />}
       </main>

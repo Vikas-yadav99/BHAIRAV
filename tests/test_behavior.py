@@ -6,7 +6,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import pytest
+
 from bhairav.behavior import AnomalyRule, ChaseRule, FallRule, FightRule, MotionBuffer, TrespassRule
+
+
+def _IMPORTABLE(mod: str) -> bool:
+    try:
+        __import__(mod)
+        return True
+    except Exception:
+        return False
 from bhairav.detectors.scenario import PersonSpec, ScenePosition
 from bhairav.pose import SyntheticPoseModel
 from bhairav.types import FrameState, Keypoint, Pose, Severity, Track, Zone
@@ -294,8 +304,8 @@ def test_alert_to_dict_includes_confidence():
     assert alert.to_dict()["confidence"] == 0.83
 
 
+@pytest.mark.skipif(_IMPORTABLE("mediapipe"), reason="mediapipe installed here; error path covered on fresh envs")
 def test_mediapipe_model_raises_clean_error_without_mediapipe():
-    import pytest
     from bhairav.pose import MediaPipePoseModel
     with pytest.raises(RuntimeError, match="mediapipe"):
         MediaPipePoseModel()

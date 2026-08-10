@@ -9,3 +9,8 @@ output/
 weights/
 .python-version
 .freebuff/
+
+# Downloaded ML models (fetch with: python scripts/fetch_models.py; YOLO pulls its own)
+models/
+*.pt
+certs/

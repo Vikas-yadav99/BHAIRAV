@@ -146,5 +146,9 @@ def default_scenario(cfg: SyntheticConfig) -> Scenario:
         # Chasers: a fast runner on the top walkway with a follower in pursuit.
         PersonSpec(12, "person", 0, [(0.80, 0.20, 0.12, 0.0), (0.20, 0.20, 0.12, 1.0)], role="chase"),
         PersonSpec(13, "person", 0, [(0.95, 0.20, 0.11, 0.0), (0.20, 0.20, 0.11, 1.0)], role="chase"),
+        # Phase 6: a car with a license plate drives the top lane (~0-9.6 s),
+        # giving the ANPR / stolen-vehicle watchlist something to read.
+        PersonSpec(14, "car", 2, [(0.02, 0.25, 0.10, 0.0), (0.98, 0.25, 0.10, 0.0)],
+                   size="vehicle", special={"plate": "MH12AB1234"}),
     ]
     return Scenario(persons, cfg.duration_sec)

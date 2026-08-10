@@ -1,6 +1,7 @@
 """RulesEngine: runs every enabled rule per frame and de-duplicates via cooldown."""
 from __future__ import annotations
 
+from ..backend.anpr import StolenVehicleRule
 from ..behavior.anomaly import AnomalyRule
 from ..behavior.chase import ChaseRule
 from ..behavior.fall import FallRule
@@ -26,6 +27,8 @@ RULES: list[tuple[str, type]] = [
     ("chase", ChaseRule),
     ("trespass", TrespassRule),
     ("anomaly", AnomalyRule),
+    # Phase 6 - vehicle watchlist (ANPR)
+    ("stolen_vehicle", StolenVehicleRule),
 ]
 
 

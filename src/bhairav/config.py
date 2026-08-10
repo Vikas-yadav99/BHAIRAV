@@ -42,6 +42,8 @@ DEFAULTS: dict = {
         "trespass": {"enabled": True, "severity": "orange", "escalate": True, "dwell_sec": 2.5},
         "anomaly": {"enabled": True, "severity": "yellow", "z_thresh": 3.0,
                      "min_count": 2, "warmup_frames": 45},
+        # Phase 6 - ANPR / stolen-vehicle watchlist
+        "stolen_vehicle": {"enabled": True, "severity": "red", "min_confidence": 0.5},
     },
     # Phase 3-5 - backend & evidence
     "backend": {

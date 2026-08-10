@@ -83,6 +83,12 @@ rules:
     min_count: 2
     warmup_frames: 45     # frames used to learn the per-zone baseline
 
+  # ---- Phase 6: ANPR / stolen-vehicle watchlist ----
+  stolen_vehicle:
+    enabled: true
+    severity: red         # red alert when a watched plate is read
+    min_confidence: 0.5   # min OCR confidence to trust a read
+
 # ---- Phase 3: backend & evidence ----
 backend:
   host: 127.0.0.1

@@ -40,11 +40,19 @@ from typing import Any
 
 from .audit import AuditLog
 from .evidence import EvidenceRecord, EvidenceStore
+from .hardening import RateLimiter
 from .rbac import (PERM_ALERTS, PERM_AUDIT, PERM_EVIDENCE_DELETE,
                    PERM_EVIDENCE_DOWNLOAD, PERM_EVIDENCE_EXPORT,
                    PERM_EVIDENCE_READ, PERM_STREAM, PERM_USERS,
                    ROLE_PERMISSIONS, issue_token, validate_token)
 from .users import UserError, UserStore
+
+# Reject JSON bodies above this size at the API edge (login/user/note
+# endpoints): a 2 MB cap stops oversized-payload resource exhaustion while
+# leaving normal evidence metadata traffic untouched.
+MAX_JSON_BODY_BYTES = 2 * 1024 * 1024
+LOGIN_RATE_LIMIT = 10      # attempts per IP per window
+LOGIN_RATE_WINDOW_SEC = 60.0
 
 # ---------------------------------------------------------------------------
 # Live stream hub (works without FastAPI; importable on minimal install)
@@ -167,11 +175,14 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
                recent_alerts: list[dict] | None = None,
                users: UserStore | None = None,
                stats: PipelineStats | None = None,
-               webhook_url: str | None = None) -> Any:
+               webhook_url: str | None = None,
+               login_limiter: RateLimiter | None = None,
+               face: dict | None = None,
+               plates: "PlateRegistry | None" = None) -> Any:
     """Build the FastAPI application. Imports fastapi lazily."""
     try:
         from fastapi import (Body, Depends, FastAPI, HTTPException, Query,
-                             WebSocket, WebSocketDisconnect)
+                             Request, WebSocket, WebSocketDisconnect)
         from fastapi.responses import Response
         from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
         from fastapi.staticfiles import StaticFiles
@@ -184,6 +195,12 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
     bearer = HTTPBearer(auto_error=False)
     users = users or UserStore(Path(store.root).parent / "users.json")
     stats = stats or PipelineStats()
+    login_limiter = login_limiter or RateLimiter(LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_SEC)
+
+    def _reject_large_body(request) -> None:
+        cl = request.headers.get("content-length")
+        if cl and cl.isdigit() and int(cl) > MAX_JSON_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="request body too large")
 
     app = FastAPI(title="BHAIRAV - Evidence & Live API", version="5.0.0")
 
@@ -230,7 +247,16 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
 
     # ---- auth -------------------------------------------------------------
     @app.post("/auth/login")
-    def login(payload: dict = Body(...)):
+    def login(request: Request, payload: dict = Body(...)):
+        _reject_large_body(request)
+        # Per-IP throttle on top of the per-account lockout (users.py): stops
+        # credential stuffing / distributed brute force at the edge. Behind a
+        # reverse proxy this is the proxy's IP; scale the window if needed.
+        client = request.client.host if request.client else "unknown"
+        if not login_limiter.allow(f"login:{client}"):
+            audit.append(client, "login_rate_limited", "too many attempts")
+            raise HTTPException(status_code=429,
+                                detail="too many login attempts, slow down")
         username = str(payload.get("username", "")).strip()
         password = str(payload.get("password", ""))
         user = users.authenticate(username, password)
@@ -407,6 +433,122 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         rows = audit.query(actor=actor, action=action, limit=limit)
         ok, problems = audit.verify()
         return {"ok": ok, "problems": problems, "entries": rows}
+
+    # ---- vehicle watchlist (Phase 6: stolen-vehicle ANPR) -----------------
+    def _plates_or_503():
+        if plates is None:
+            raise HTTPException(status_code=503,
+                                detail="vehicle watchlist unavailable")
+        return plates
+
+    @app.get("/api/vehicles/watch")
+    def vehicle_watch_list(claims: dict = Depends(require(PERM_EVIDENCE_EXPORT))):
+        return {"watch": _plates_or_503().list_watch()}
+
+    @app.post("/api/vehicles/watch")
+    def vehicle_watch_add(request: Request, payload: dict = Body(...),
+                          claims: dict = Depends(require(PERM_EVIDENCE_DOWNLOAD))):
+        _reject_large_body(request)
+        try:
+            rec = _plates_or_503().watch(str(payload.get("plate", "")),
+                                         reason=str(payload.get("reason", "")),
+                                         actor=claims["sub"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        audit.append(claims["sub"], "watch_plate", rec["plate"])
+        return rec
+
+    @app.delete("/api/vehicles/watch/{plate}")
+    def vehicle_watch_remove(plate: str,
+                             claims: dict = Depends(require(PERM_EVIDENCE_DOWNLOAD))):
+        if not _plates_or_503().unwatch(plate):
+            raise HTTPException(status_code=404, detail="plate not on watchlist")
+        audit.append(claims["sub"], "unwatch_plate", plate.upper())
+        return {"removed": plate.upper()}
+
+    @app.get("/api/vehicles/reads")
+    def vehicle_reads(claims: dict = Depends(require(PERM_EVIDENCE_EXPORT)),
+                      limit: int = Query(50, le=200)):
+        return {"reads": _plates_or_503().recent_reads(limit)}
+
+    # ---- face search (Phase 6: find a person in evidence by photo) --------
+    def _face_or_503():
+        if face is None:
+            raise HTTPException(
+                status_code=503,
+                detail="face search unavailable: models not installed. "
+                       "Run: python scripts/fetch_models.py")
+        return face
+
+    def _decode_image_b64(image_b64: str):
+        import base64 as _b64
+        try:
+            raw = _b64.b64decode(image_b64 or "", validate=True)
+        except Exception:
+            raise HTTPException(status_code=400, detail="image_b64 must be valid base64")
+        import cv2
+        import numpy as np
+        img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            raise HTTPException(status_code=400, detail="could not decode image")
+        return img
+
+    @app.get("/api/search/status")
+    def search_status(claims: dict = Depends(require(PERM_EVIDENCE_EXPORT))):
+        svc = _face_or_503()
+        return {"enabled": True, "gallery_subjects": svc["gallery"].count(),
+                "index": svc["index"].stats()}
+
+    @app.post("/api/search/register")
+    def search_register(request: Request, payload: dict = Body(...),
+                        claims: dict = Depends(require(PERM_USERS))):
+        _reject_large_body(request)
+        svc = _face_or_503()
+        name = str(payload.get("name", "")).strip()
+        img = _decode_image_b64(str(payload.get("image_b64", "")))
+        emb = svc["recognizer"].embed(img)
+        if emb is None:
+            raise HTTPException(status_code=400, detail="no face detected in the photo")
+        rec = svc["gallery"].add(name, emb, notes=str(payload.get("notes", "")))
+        audit.append(claims["sub"], "register_subject", name)
+        return rec
+
+    @app.get("/api/search/subjects")
+    def search_subjects(claims: dict = Depends(require(PERM_EVIDENCE_EXPORT))):
+        svc = _face_or_503()
+        return {"subjects": svc["gallery"].list()}
+
+    @app.delete("/api/search/subjects/{name}")
+    def search_subject_delete(name: str,
+                              claims: dict = Depends(require(PERM_USERS))):
+        svc = _face_or_503()
+        if not svc["gallery"].remove(name):
+            raise HTTPException(status_code=404, detail="subject not found")
+        audit.append(claims["sub"], "remove_subject", name)
+        return {"removed": name}
+
+    @app.post("/api/search/query")
+    def search_query(request: Request, payload: dict = Body(...),
+                     claims: dict = Depends(require(PERM_EVIDENCE_EXPORT))):
+        _reject_large_body(request)
+        svc = _face_or_503()
+        img = _decode_image_b64(str(payload.get("image_b64", "")))
+        emb = svc["recognizer"].embed(img)
+        if emb is None:
+            raise HTTPException(status_code=400, detail="no face detected in the photo")
+        top_k = int(payload.get("top_k", 5))
+        threshold = float(payload.get("threshold", 0.55))
+        audit.append(claims["sub"], "face_search", f"top_k={top_k} threshold={threshold}")
+        return {"subjects": svc["gallery"].search(emb, top_k, threshold),
+                "evidence": svc["index"].search(emb, top_k, threshold)}
+
+    @app.post("/api/search/index")
+    def search_index(claims: dict = Depends(require(PERM_USERS))):
+        svc = _face_or_503()
+        stats = svc["index"].index()
+        audit.append(claims["sub"], "index_evidence_faces",
+                     f"indexed={stats['indexed_events']}")
+        return stats
 
     # ---- alert feed -------------------------------------------------------
     @app.get("/api/alerts/recent")
