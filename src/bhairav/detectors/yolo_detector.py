@@ -38,13 +38,22 @@ class YoloDetector(Detector):
     def fps(self) -> float:
         return self._fps
 
-    def stream(self, source: str | None = None, max_frames: int | None = None):
+    def stream(self, source: str | None = None, max_frames: int | None = None,
+               opener=None):
+        """Yield FrameStates.
+
+        `opener` (callable -> opened cv2.VideoCapture) is used when provided;
+        the sources layer uses it to retry RTSP/network opens with backoff.
+        """
         if source is None or source == "blob":
             raise ValueError("YoloDetector needs a video file or camera index as source")
-        source = int(source) if source.isdigit() else source
-        cap = cv2.VideoCapture(source)
-        if not cap.isOpened():
-            raise RuntimeError(f"cannot open video source: {source}")
+        if opener is not None:
+            cap = opener()
+        else:
+            source = int(source) if source.isdigit() else source
+            cap = cv2.VideoCapture(source)
+            if not cap.isOpened():
+                raise RuntimeError(f"cannot open video source: {source}")
         self._fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
 
         i = 0

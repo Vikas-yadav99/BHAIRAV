@@ -48,13 +48,70 @@ def plate_region(bbox: tuple) -> tuple[int, int, int, int]:
 # Plate reader (template OCR)
 # ---------------------------------------------------------------------------
 class PlateReader:
-    """Read a plate string from a plate image. `backend` is a seam: 'template'
-    is the deterministic synthetic-scene OCR; other backends can be added."""
+    """Read a plate string from a plate image. `backend` is a seam:
+
+    - 'template': deterministic OCR calibrated to the synthetic scene's font
+      (zero extra dependencies; exact on the demo).
+    - 'easyocr': deep-learning OCR (detection + recognition) that works on
+      real-world plates. Needs `pip install easyocr` (pulls torch); models are
+      downloaded on first use. Falls back to 'template' if unavailable.
+    """
 
     def __init__(self, backend: str = "template", min_length: int = 4):
         self.backend = backend
         self.min_length = min_length
         self._templates = self._build_templates()
+        self._easy = None
+        self._easy_failed = False
+
+    # -- easyocr backend (real-world plates) --------------------------------
+    def _easyocr(self):
+        """Lazy singleton EasyOCR reader; None when unavailable."""
+        if self.backend != "easyocr" or self._easy_failed:
+            return None
+        if self._easy is None:
+            try:
+                import easyocr
+                self._easy = easyocr.Reader(["en"], gpu=False, verbose=False)
+            except Exception:
+                self._easy_failed = True
+                print("[anpr] easyocr unavailable - falling back to template "
+                      "backend (pip install easyocr to read real plates)")
+                self._easy = None
+        return self._easy
+
+    def _read_easyocr(self, reader, frame: np.ndarray,
+                      bbox: tuple) -> tuple[str | None, float]:
+        """OCR the whole vehicle bbox (real plates sit anywhere on the car).
+
+        Upscales the crop for small plates, keeps candidate boxes that look
+        like a plate (4+ alnum chars), and returns the best match.
+        """
+        x1, y1, x2, y2 = (float(v) for v in bbox)
+        h, w = frame.shape[:2]
+        x1, y1 = max(0, int(x1)), max(0, int(y1))
+        x2, y2 = min(w, int(x2)), min(h, int(y2))
+        if x2 - x1 < 12 or y2 - y1 < 8:
+            return None, 0.0
+        region = frame[y1:y2, x1:x2]
+        region = cv2.resize(region, None, fx=2.5, fy=2.5,
+                            interpolation=cv2.INTER_CUBIC)
+        results = reader.readtext(region, detail=1, paragraph=False)
+        best, best_conf = None, 0.0
+        # real plates can be short (3 chars), so the easyocr gate is looser
+        # than the template backend's (which needs 4+ to reject noise)
+        min_len = max(3, self.min_length - 1)
+        for _box, txt, conf in results:
+            cleaned = "".join(ch for ch in txt.upper() if ch in PLATE_CHARS)
+            if len(cleaned) < min_len or conf < 0.3:
+                continue
+            # plates almost always contain a digit: prefer those over longer
+            # words that merely sit near the plate (e.g. "ESCOLAR")
+            has_digit = any(ch.isdigit() for ch in cleaned)
+            score = conf + (0.15 if has_digit else 0.0)
+            if score > best_conf:
+                best, best_conf = cleaned, float(conf)
+        return (best, best_conf) if best else (None, 0.0)
 
     @staticmethod
     def _build_templates() -> dict[str, np.ndarray]:
@@ -128,6 +185,14 @@ class PlateReader:
 
     def read(self, frame: np.ndarray, bbox: tuple) -> tuple[str | None, float]:
         """Read a plate from a frame at a vehicle bbox. Returns (plate, conf)."""
+        easy = self._easyocr()
+        if easy is not None:
+            return self._read_easyocr(easy, frame, bbox)
+        return self._read_template(frame, bbox)
+
+    def _read_template(self, frame: np.ndarray,
+                       bbox: tuple) -> tuple[str | None, float]:
+        """Template OCR path (synthetic-scene calibrated)."""
         x1, y1, x2, y2 = plate_region(bbox)
         h, w = frame.shape[:2]
         if x2 - x1 < 8 or y2 - y1 < 4 or x1 < 0 or y1 < 0 or x2 > w or y2 > h:
@@ -238,7 +303,7 @@ class StolenVehicleRule:
         self.enabled = bool(config.get("enabled", True))
         self.severity = Severity(config.get("severity", "red"))
         self.min_confidence = float(config.get("min_confidence", 0.5))
-        self.reader = PlateReader()
+        self.reader = PlateReader(backend=config.get("backend", "template"))
         self.registry = PlateRegistry(Path("output/plates.json"))
 
     def evaluate(self, state: FrameState, zones: list) -> list[Alert]:

@@ -54,7 +54,21 @@ def run_stream(cfg, source, detector, engine, hub, store, evidence_dir, stop,
     `store` is the SAME EvidenceStore the API reads from, so the recorder's
     writes stay visible to search/status (the store keeps an in-memory index
     that only its own mutations update).
+
+    Live sources (RTSP/RTMP/webcam) are re-opened with exponential backoff
+    when they drop, and connect/drop health is surfaced via /api/status.
     """
+    from bhairav.sources import SourceMonitor, SourceKind, classify_source, open_capture
+
+    kind, desc = classify_source(source)
+    monitor = SourceMonitor(kind, desc)
+    stats.set_source(monitor)
+    print(f"[source] {desc} (kind={kind.value})", flush=True)
+
+    def opener():
+        if kind is SourceKind.BLOB:
+            raise RuntimeError("blob source has no capture to open")
+        return open_capture(source, monitor=monitor, retries=3, base_delay=2.0)
     from bhairav.alert_log import AlertLog
     from bhairav.backend.evidence import EventRecorder
     from bhairav.backend.server import webhook_notify
@@ -97,15 +111,29 @@ def run_stream(cfg, source, detector, engine, hub, store, evidence_dir, stop,
         return None
 
     # loop the source until the server shuts down ("live" feel)
+    import time as _time
+    delay = 1.0
     while not stop.is_set():
-        run_pipeline(detector, engine, source=source, on_frame=on_frame)
+        try:
+            run_pipeline(detector, engine, source=source, on_frame=on_frame,
+                         opener=opener if kind is not SourceKind.BLOB else None)
+            # a clean pass ended (file replay done / stream EOF) -> reconnect
+            if kind is not SourceKind.BLOB:
+                monitor.dropped("stream ended, reconnecting")
+        except RuntimeError as exc:
+            monitor.dropped(str(exc))
+            print(f"[source] reconnect failed ({exc}); retrying in {delay:.0f}s",
+                  flush=True)
+            stop.wait(delay)
+            delay = min(delay * 2, 30.0)
+            continue
         recorder.flush()
         # scene clock restarts at 0 next pass: reset cooldown/open state so
         # the second pass isn't blocked by replay-1 timestamps
         recorder.reset()
         # brief pause between replays so the stream doesn't hot-loop
-        import time as _time
         stop.wait(0.5)
+        delay = 1.0
 
 
 def main() -> int:

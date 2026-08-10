@@ -25,10 +25,14 @@ def make_detector(app: AppConfig, detector: str | None = None, source: str | Non
 
 
 def run_pipeline(detector: Detector, engine: RulesEngine, source: str | None = None,
-                 max_frames: int | None = None, on_frame=None) -> list[Alert]:
-    """Run the frame loop; `on_frame(state, alerts)` may return False to stop early."""
+                 max_frames: int | None = None, on_frame=None, opener=None) -> list[Alert]:
+    """Run the frame loop; `on_frame(state, alerts)` may return False to stop early.
+
+    `opener` (callable -> opened cv2.VideoCapture) is forwarded to the detector
+    so the sources layer can retry live-stream opens with backoff.
+    """
     all_alerts: list[Alert] = []
-    for state in detector.stream(source=source, max_frames=max_frames):
+    for state in detector.stream(source=source, max_frames=max_frames, opener=opener):
         alerts = engine.update(state)
         all_alerts.extend(alerts)
         if on_frame is not None:

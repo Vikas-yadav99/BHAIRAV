@@ -30,7 +30,9 @@ class BlobDetector(Detector):
     def fps(self) -> float:
         return self._fps
 
-    def stream(self, source: str | None = None, max_frames: int | None = None):
+    def stream(self, source: str | None = None, max_frames: int | None = None,
+               opener=None):
+        # synthetic scene ignores the source/opener (no real capture)
         dt = 1.0 / self._fps
         t = 0.0
         i = 0

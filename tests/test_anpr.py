@@ -150,3 +150,58 @@ def test_vehicle_api_503_without_registry(tmp_path):
                  json={"username": "admin", "password": "admin123"}).json()["token"]
     r = c.get("/api/vehicles/watch", headers={"Authorization": f"Bearer {tok}"})
     assert r.status_code == 503
+
+# ---------------------------------------------------------------------------
+# PlateReader backends (template vs easyocr)
+# ---------------------------------------------------------------------------
+def test_template_reader_reads_synthetic_plate():
+    """Template backend is exact on the synthetic scene (deterministic)."""
+    cfg = SyntheticConfig()
+    det = BlobDetector(default_scenario(cfg), fps=cfg.fps,
+                       width=cfg.width, height=cfg.height)
+    reader = PlateReader(backend="template")
+    for st in det.stream(source="blob", max_frames=400):
+        for tr in st.tracks:
+            if tr.class_id in (2, 5, 7) and tr.bbox[3] > 60:
+                txt, conf = reader.read(st.frame, tr.bbox)
+                if txt == "MH12AB1234":
+                    assert conf >= 0.5
+                    return
+    pytest.fail("no full plate read on synthetic scene")
+
+
+def test_easyocr_backend_falls_back_to_template(monkeypatch):
+    """backend='easyocr' without easyocr installed degrades to template."""
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **k):
+        if name == "easyocr":
+            raise ImportError("easyocr not installed (test)")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    cfg = SyntheticConfig()
+    det = BlobDetector(default_scenario(cfg), fps=cfg.fps,
+                       width=cfg.width, height=cfg.height)
+    reader = PlateReader(backend="easyocr")
+    for st in det.stream(source="blob", max_frames=400):
+        for tr in st.tracks:
+            if tr.class_id in (2, 5, 7) and tr.bbox[3] > 60:
+                txt, conf = reader.read(st.frame, tr.bbox)
+                if txt == "MH12AB1234":      # fell back to template path
+                    return
+    pytest.fail("no full plate read via fallback")
+
+
+def test_stolen_vehicle_rule_reads_backend_from_config(tmp_path):
+    """backend key in the rule config selects the PlateReader backend."""
+    rule = StolenVehicleRule({"enabled": True, "backend": "template"})
+    assert rule.reader.backend == "template"
+    rule2 = StolenVehicleRule({"enabled": True, "backend": "easyocr"})
+    assert rule2.reader.backend == "easyocr"
+
+
+@pytest.mark.skipif(True, reason="real-plate fixtures fetched by scripts/fetch_real_plate_samples.py")
+def _unused_real_plate_placeholder():
+    pass

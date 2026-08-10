@@ -1,0 +1,10 @@
+.git
+.gitignore
+output
+tests
+.deepextract
+deploy/certs
+*.pyc
+__pycache__
+.pytest_cache
+.venv

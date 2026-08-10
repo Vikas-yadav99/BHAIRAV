@@ -19,6 +19,11 @@ non-default secrets/passwords outside localhost, and vendored (offline) React;
 the **face search** module (YuNet + SFace, ONNX, no new deps) lets you find a
 person in evidence by uploading a photo; the **ANPR / stolen-vehicle watchlist**
 reads license plates and alerts when a watched plate appears.
+Phase 7 work adds a **camera source layer** (RTSP/RTMP/webcam with automatic
+reconnect + backoff and feed health in `/api/status`), an **EasyOCR backend**
+for reading *real* license plates (with an evaluation script), a **pinned,
+CVE-scanned dependency manifest** (pip-audit clean), a CI workflow, and
+**Docker + nginx + TLS deployment configs** under `deploy/`.
 
 > Phase 0 (Python → NumPy → OpenCV → YOLO) is the learning track, done in parallel.
 > When you finish it, install `ultralytics` and the exact same pipeline runs on real
@@ -47,7 +52,7 @@ python scripts/serve.py
 Run the tests:
 
 ```bash
-python -m pytest -q                  # 137 tests (Phases 1-6)
+python -m pytest -q                  # 163 tests (Phases 1-7)
 ```
 
 ### Face search, ANPR and models
@@ -62,8 +67,9 @@ python scripts/make_cert.py --out-dir certs
 ```
 
 Face search and plate reading work **without any extra pip packages** (ONNX
-models run through OpenCV; plates are read with template OCR). Only the real
-CCTV path needs `pip install ultralytics mediapipe`.
+models run through OpenCV; plates default to template OCR). The real CCTV path
+adds `pip install ultralytics mediapipe`, and reading *real* plates well adds
+`pip install easyocr` + `rules.stolen_vehicle.backend: easyocr`.
 
 ## Phase 3-5 - API & evidence
 
@@ -137,6 +143,12 @@ entries are hash-chained: any tamper or deletion is detected by `verify()`.
   body size cap on top of the existing per-account brute-force lockout.
 - **No CDN.** React + Babel are vendored under `dashboard/vendor/` (offline,
   no third-party supply chain at page load).
+- **Pinned, CVE-scanned dependencies.** `requirements.txt` pins every package
+  to the exact audited version; `python -m pip_audit` reports **no known
+  vulnerabilities** (the only advisory found was `pip` itself — fixed by
+  upgrading). The CI workflow (`.github/workflows/ci.yml`) re-runs the scan on
+  every push. `SECURITY.md` documents the threat model and a manual
+  penetration-test checklist.
 - Local-only binding by default (`127.0.0.1`); pass `--host 0.0.0.0` to expose
   (then TLS + non-default credentials are required).
 
@@ -214,8 +226,14 @@ ranked matches with per-frame confidence. Index and gallery live under
 - **PlateReader** — detects the plate rectangle inside a vehicle track's
   bbox, binarizes, segments glyphs by ink projection, and template-matches
   against a bundled OCR glyph set (trained on the same font the renderer
-  draws, so the demo is deterministic; the same seam accepts any OCR engine
-  such as PaddleOCR for real-world plates).
+  draws, so the demo is deterministic). Two backends:
+  - `template` (default) — zero extra dependencies, exact on the demo scene.
+  - `easyocr` (set `rules.stolen_vehicle.backend: easyocr` in `config.yaml`;
+    `pip install easyocr`) — deep OCR that reads **real-world plates**.
+    Evaluated on real Brazilian plates (UFPR-ALPR samples): template reads
+    0/4, easyocr reads 3/4 (e.g. `L04ZI`, `BOMBEIROS`, `545`) — reproduce with
+    `python scripts/fetch_real_plate_samples.py` + `python scripts/eval_anpr.py`.
+    The easyocr backend gracefully falls back to template when not installed.
 - **PlateRegistry / stolen_vehicle rule** — watched plates live in
   `config.yaml` (`rules.stolen_vehicle.watchlist`) and via the API; a read of
   a watched plate fires a red alert with the plate in `details`, records
@@ -303,6 +321,22 @@ under `model.classes`). Real pose is wired through `MediaPipePoseModel` (Tasks
 API — mediapipe 1.0 removed the legacy `solutions` API) and auto-enables in
 `YoloDetector` when `models/pose_landmarker_full.task` is present.
 
+### Live camera feeds (RTSP / RTMP / webcam)
+
+Any source works with `--source`: a video file, a webcam index (`0`), or a
+network stream URL. Live sources are opened with low-latency FFmpeg options
+(TCP transport, no buffering), retried with **exponential backoff** when the
+camera drops, and their connect/drop health is exposed in `/api/status` under
+`pipeline.source`.
+
+```bash
+python scripts/serve.py --source rtsp://user:pass@10.0.0.5:554/stream1
+python scripts/serve.py --source 0            # webcam
+```
+
+Source classification and reconnect logic live in `src/bhairav/sources.py`
+(`classify_source`, `SourceMonitor`, `open_capture`), covered by 16 tests.
+
 **Verified on real footage** (this repo, `output/real/vtest.avi` — a real CCTV
 clip): YOLOv8n + ByteTrack tracked 592 person detections (7 simultaneous) and
 240 vehicle detections with 16 stable track IDs across 120 frames; MediaPipe
@@ -329,9 +363,9 @@ as with any landmarker.
 - ✅ Phase 5: real user accounts (PBKDF2), evidence workflow (status / notes /
      ZIP export), ops Status page, clip playback, webhook notifications,
      token revocation on lock, brute-force lockout, hash-free API responses
-- ✅ 137 passing tests (geometry, tracker, rules, classifiers, pose, privacy,
+- ✅ 163 passing tests (geometry, tracker, rules, classifiers, pose, privacy,
      evidence, RBAC/audit, users, server incl. dashboard route, hardening,
-     face search, ANPR)
+     face search, ANPR, camera sources)
 
 ## Phase 5 - what was added and why
 
@@ -379,9 +413,19 @@ that and adds the workflow a real command center needs:
   pose wrapper to mediapipe 1.0's Tasks API (the legacy API is gone) and
   pinned the model file's SHA-256 in `scripts/fetch_models.py`.
 
-## Next: Phase 7 (real cameras & scale)
+## Deployment (Docker + nginx + TLS)
 
-Add multi-camera support to the dashboard (the evidence store already tags
-`camera`), swap the file store for a real database (PostgreSQL/MongoDB), and
-containerize with Docker + AWS deployment. The API/WebSocket seams for all
-three already exist.
+`deploy/` contains a production layout: `Dockerfile` (non-root app image),
+`docker-compose.yml` (app + nginx TLS terminator, health checks, secrets via
+env), `nginx/nginx.conf` (TLS 1.2+, WS upgrade, edge rate limiting), and a
+self-signed cert generator. See `deploy/README.md` for the quick start. The
+app container can point straight at an RTSP camera with one command-line
+change. Storage remains file-based on a named volume; PostgreSQL is the
+roadmap milestone for scale-out (the compose file sketches the shape).
+
+## Next: Phase 8 (scale & the wider roadmap)
+
+Multi-camera support in the dashboard (the evidence store already tags
+`camera`), swap the file store for PostgreSQL, HA (multi-replica app + shared
+storage), the natural-language **Investigation Assistant**, abandoned-object /
+accident / riot detection, and public/police dashboards.

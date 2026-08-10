@@ -1,15 +1,40 @@
-# BHAIRAV Phase 3 - Evidence & Live API
+# BHAIRAV - pinned dependency manifest
 #
-# Core deps (required): synthetic demo, rule engine, evidence, tests
-numpy>=1.24
-opencv-python>=4.8
-pyyaml>=6.0
+# All versions below were installed in the verified reference environment and
+# scanned with `python -m pip_audit` (pip-audit 2.10.1, advisory DB current):
+#   Result: No known vulnerabilities found.
+# Re-run the scan after any dependency change:  python -m pip_audit
+#
+# Install (all tiers):  pip install -r requirements.txt
 
-# Phase 3 backend: FastAPI + uvicorn + WebSocket + encryption at rest
-fastapi>=0.110
-uvicorn>=0.29
-websockets>=12.0
-cryptography>=42.0
+# ---- Core: synthetic demo, rule engine, evidence, tests ----
+numpy==2.2.6
+opencv-python==4.12.0.88
+PyYAML==6.0.3
 
-# Dev
-pytest>=8.0
+# ---- Backend: FastAPI + uvicorn + WebSocket + encryption at rest ----
+fastapi==0.141.1
+uvicorn==0.52.1
+websockets==17.0.1
+cryptography==50.0.0
+
+# ---- ML (real footage): YOLO + ByteTrack detection/tracking ----
+# ultralytics pulls torch + torchvision; on CPU-only machines the torch build
+# from PyPI is large (~200 MB). torchvision==0.28.0 pairs with torch==2.13.0.
+ultralytics==8.4.117
+torch==2.13.0
+torchvision==0.28.0
+
+# ---- Optional: MediaPipe pose (real skeleton on real footage) ----
+mediapipe==1.0.0
+
+# ---- Optional: EasyOCR ANPR backend (real license plates) ----
+# Pulls torch (already present with ultralytics). Models (~96 MB) download on
+# first use into ~/.EasyOCR. Works with the regular opencv-python build; do
+# NOT install opencv-python-headless alongside it (it shadows cv2 and changes
+# glyph rendering, breaking the calibrated template OCR).
+easyocr==1.7.2
+
+# ---- Dev ----
+pytest==9.1.1
+pip-audit==2.10.1

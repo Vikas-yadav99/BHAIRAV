@@ -1,0 +1,14 @@
+# Per-deployment overrides merged by mounting over /app/config.yaml.
+# Copy this file, edit values, and keep it OUT of git (it holds secrets).
+backend:
+  host: 0.0.0.0
+  port: 8000
+  secret: CHANGE_ME_LONG_RANDOM     # overridden by BHAIRAV_SECRET env in compose
+  users_file: /data/output/users.json
+  webhook_url: null                  # e.g. your Slack/Teams webhook for red alerts
+evidence:
+  dir: /data/evidence
+  encrypt: true
+
+# the input source is chosen with the compose `command` (e.g. an RTSP URL or
+# video file); the synthetic scene is only for demos. See docker-compose.yml.

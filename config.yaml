@@ -88,6 +88,8 @@ rules:
     enabled: true
     severity: red         # red alert when a watched plate is read
     min_confidence: 0.5   # min OCR confidence to trust a read
+    backend: template     # template = deterministic demo OCR (no deps);
+                          # easyocr = deep OCR for real plates (pip install easyocr)
 
 # ---- Phase 3: backend & evidence ----
 backend:

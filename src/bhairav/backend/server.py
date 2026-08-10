@@ -123,6 +123,7 @@ class PipelineStats:
         self.fps_ema = 0.0
         self._last_t = time.time()
         self._last_n = 0
+        self._source = None
 
     def bump(self, frames: int = 1, alerts: int = 0) -> None:
         with self._lock:
@@ -135,11 +136,19 @@ class PipelineStats:
                 self.fps_ema = 0.7 * self.fps_ema + 0.3 * inst
                 self._last_t, self._last_n = now, self.frames
 
+    def set_source(self, monitor) -> None:
+        """Attach a sources.SourceMonitor so /api/status reports feed health."""
+        with self._lock:
+            self._source = monitor
+
     def snapshot(self) -> dict:
         with self._lock:
-            return {"uptime_sec": round(time.time() - self.started, 1),
+            snap = {"uptime_sec": round(time.time() - self.started, 1),
                     "frames": self.frames, "alerts": self.alerts,
                     "fps": round(self.fps_ema, 1)}
+            if self._source is not None:
+                snap["source"] = self._source.snapshot()
+            return snap
 
 
 def webhook_notify(url: str | None, alert: dict) -> None:
