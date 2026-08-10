@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+output/
+*.mp4
+*.avi
+weights/
+.python-version
+.freebuff/

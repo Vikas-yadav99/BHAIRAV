@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BHAIRAV Command Center</title>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<style>
+:root {
+  --bg: #0b1120; --panel: #0f172a; --border: #1e293b; --border2: #16213a;
+  --text: #e2e8f0; --muted: #64748b; --dim: #94a3b8;
+  --green: #22c55e; --yellow: #eab308; --orange: #f97316; --red: #ef4444; --cyan: #22d3ee;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+#root { min-height: 100vh; display: flex; flex-direction: column; }
+a { color: var(--cyan); }
+button { font: inherit; cursor: pointer; }
+input, select { font: inherit; }
+
+/* ---------- login ---------- */
+.login-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.login-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+  padding: 36px 32px; width: 100%; max-width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.login-card h1 { font-size: 22px; margin-bottom: 4px; }
+.login-card .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+.field { margin-bottom: 14px; }
+.field label { display: block; color: var(--dim); font-size: 12px; text-transform: uppercase;
+  letter-spacing: 1px; margin-bottom: 6px; }
+.field input, .field select { width: 100%; background: #0d1526; color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.field select option { background: #0d1526; }
+.btn { border: none; border-radius: 8px; padding: 10px 16px; font-weight: 600; font-size: 14px; }
+.btn-primary { background: var(--cyan); color: #06222b; width: 100%; }
+.btn-primary:hover { filter: brightness(1.1); }
+.btn-ghost { background: #1e293b; color: var(--text); }
+.btn-ghost:hover { background: #263449; }
+.err { color: var(--red); font-size: 13px; margin-bottom: 12px; min-height: 18px; }
+
+/* ---------- app shell ---------- */
+.topbar { display: flex; align-items: center; gap: 16px; padding: 0 20px; height: 56px;
+  background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20; }
+.brand { font-weight: 800; letter-spacing: .5px; font-size: 16px; white-space: nowrap; }
+.brand span { color: var(--cyan); }
+.tabs { display: flex; gap: 4px; margin-left: 8px; }
+.tab { background: none; border: none; color: var(--muted); padding: 8px 14px; border-radius: 8px;
+  font-weight: 600; font-size: 14px; transition: all .15s; }
+.tab:hover { color: var(--text); background: #16213a; }
+.tab.active { color: var(--cyan); background: #0d1526; }
+.spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 10px;
+  border-radius: 999px; border: 1px solid var(--border); color: var(--dim); }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.6s infinite; }
+.dot.idle { background: var(--muted); }
+@keyframes pulse { 50% { opacity: .4; } }
+.user { color: var(--dim); font-size: 13px; }
+.logout { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 8px;
+  padding: 6px 12px; font-size: 13px; }
+.logout:hover { color: var(--red); border-color: var(--red); }
+main { flex: 1; padding: 20px; max-width: 1400px; width: 100%; margin: 0 auto; }
+
+/* ---------- live wall ---------- */
+.live-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .live-grid { grid-template-columns: 1fr; } }
+.stream-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.stream-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  border-bottom: 1px solid var(--border2); font-size: 13px; color: var(--dim); }
+.stream-head .cam { font-weight: 700; color: var(--text); }
+.stream-body { position: relative; background: #000; aspect-ratio: 16/9; }
+.stream-body canvas { width: 100%; height: 100%; display: block; }
+.stream-status { position: absolute; top: 10px; right: 10px; font-size: 11px; padding: 3px 8px;
+  border-radius: 6px; background: rgba(0,0,0,.6); color: var(--muted); }
+.hud-row { display: flex; gap: 14px; padding: 10px 14px; border-top: 1px solid var(--border2);
+  font-size: 12px; color: var(--dim); flex-wrap: wrap; }
+.hud-row b { color: var(--text); }
+
+/* ---------- alert feed ---------- */
+.feed { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.feed-head { padding: 10px 14px; border-bottom: 1px solid var(--border2); font-size: 13px; font-weight: 700; color: var(--dim); }
+.feed-list { max-height: 520px; overflow-y: auto; }
+.feed-item { display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+  border-bottom: 1px solid var(--border2); font-size: 12px; animation: slidein .2s; }
+@keyframes slidein { from { opacity: 0; transform: translateY(-6px); } }
+.feed-item .sev { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.feed-item .msg { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-item .rule { color: var(--cyan); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+.feed-item .ts { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; }
+.feed-empty { padding: 24px; text-align: center; color: var(--muted); font-size: 13px; }
+
+/* ---------- evidence ---------- */
+.search-row { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+.search-row input[type=text] { flex: 1; min-width: 200px; background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; }
+.search-row select { background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 9px 10px; }
+.ev-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.ev-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  cursor: pointer; transition: transform .15s, border-color .15s; }
+.ev-card:hover { transform: translateY(-3px); border-color: #334155; }
+.ev-card img { width: 100%; height: 150px; object-fit: cover; display: block; background: #000; }
+.ev-body { padding: 12px; }
+.ev-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.sev-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; letter-spacing: .5px; }
+.ev-rule { font-size: 13px; font-weight: 700; }
+.ev-meta { color: var(--muted); font-size: 12px; }
+.ev-msg { color: var(--dim); font-size: 12px; margin-top: 6px; line-height: 1.4; }
+.ev-flag { font-size: 11px; color: var(--dim); margin-top: 4px; }
+.count { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+
+/* ---------- modal ---------- */
+.modal-back { position: fixed; inset: 0; background: rgba(4,8,16,.8); display: flex; align-items: center;
+  justify-content: center; z-index: 50; padding: 20px; }
+.modal { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; max-width: 860px;
+  width: 100%; max-height: 92vh; overflow-y: auto; }
+.modal-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px;
+  border-bottom: 1px solid var(--border2); }
+.modal-head .title { font-weight: 700; }
+.modal-close { margin-left: auto; background: none; border: none; color: var(--muted); font-size: 20px; line-height: 1; }
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 18px; }
+.modal-body img { width: 100%; border-radius: 8px; }
+.modal-body video { width: 100%; border-radius: 8px; background: #000; }
+.meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 14px; }
+.meta-cell { background: #0d1526; border: 1px solid var(--border2); border-radius: 8px; padding: 8px 10px; }
+.meta-cell .k { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+.meta-cell .v { color: var(--text); font-size: 13px; margin-top: 2px; }
+.modal-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+
+/* ---------- audit ---------- */
+.audit-ok { display: inline-flex; align-items: center; gap: 8px; background: #052e16; color: var(--green);
+  border: 1px solid #14532d; padding: 8px 14px; border-radius: 10px; font-size: 13px; margin-bottom: 14px; }
+.audit-bad { display: inline-flex; align-items: center; gap: 8px; background: #450a0a; color: var(--red);
+  border: 1px solid #7f1d1d; padding: 8px 14px; border-radius: 10px; font-size: 13px; margin-bottom: 14px; }
+table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+table.tbl th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 1px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: #0d1526; }
+table.tbl td { padding: 9px 14px; border-bottom: 1px solid var(--border2); color: var(--text); }
+table.tbl td.muted { color: var(--muted); }
+.hash { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); }
+
+/* ---------- status ---------- */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
+.stat-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.stat-card .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+.stat-card .v { font-size: 26px; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.stat-card .s { color: var(--dim); font-size: 12px; margin-top: 4px; }
+.sev-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); margin: 4px 0; }
+.sev-row .bar { flex: 1; height: 8px; background: #0d1526; border-radius: 99px; overflow: hidden; }
+.sev-row .fill { height: 100%; border-radius: 99px; }
+.stat-col { margin-top: 22px; }
+.stat-col h3 { font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+.audit-ok, .audit-bad { margin-bottom: 0; }
+
+/* ---------- users ---------- */
+.user-form { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+.user-form input, .user-form select { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; }
+.lock-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 3px 8px; font-size: 11px; }
+.lock-btn:hover { color: var(--yellow); border-color: var(--yellow); }
+.del-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 6px; padding: 3px 8px; font-size: 11px; }
+.del-btn:hover { color: var(--red); border-color: var(--red); }
+
+/* ---------- evidence notes ---------- */
+.note-box { margin-top: 16px; border-top: 1px solid var(--border2); padding-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.note-box .meta-cell { min-width: 150px; margin-top: 0; }
+.note-box input { flex: 1; min-width: 180px; background: #0d1526; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; }
+.note-item { flex-basis: 100%; color: var(--dim); font-size: 12px; padding: 6px 10px; background: #0d1526; border-radius: 8px; }
+.note-item b { color: var(--text); }
+.note-item .muted { color: var(--muted); }
+
+/* ---------- misc ---------- */
+.loading { text-align: center; color: var(--muted); padding: 40px; font-size: 14px; }
+.chip { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; letter-spacing: .5px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+const SEV_COLORS = { green: '#22c55e', yellow: '#eab308', orange: '#f97316', red: '#ef4444' };
+const RULES = ['loitering','zone_crossing','crowd_density','fall','fight','chase','trespass','anomaly'];
+
+function sevStyle(s) { return { background: (SEV_COLORS[s]||'#94a3b8') + '22', color: SEV_COLORS[s]||'#94a3b8', border: '1px solid ' + (SEV_COLORS[s]||'#94a3b8') + '66' }; }
+
+function api(token) {
+  const base = {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': 'Bearer ' + token } : {}),
+  };
+  return {
+    get: async (path) => {
+      const r = await fetch(path, { headers: base });
+      if (r.status === 401) throw new Error('unauthorized');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    },
+    login: async (username, password) => {
+      const r = await fetch('/auth/login', { method: 'POST', headers: base, body: JSON.stringify({ username, password }) });
+      if (!r.ok) throw new Error('login failed');
+      return r.json();
+    },
+  };
+}
+
+// Authenticated blob-URL loading (img/a tags can't send the bearer header)
+const snapCache = {};
+const SNAP_CACHE_MAX = 300;   // evict oldest to bound memory across long replay sessions
+async function snapUrl(token, eventId) {
+  if (snapCache[eventId]) return snapCache[eventId];
+  try {
+    const r = await fetch('/api/evidence/' + eventId + '/snapshot', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!r.ok) return null;
+    const u = URL.createObjectURL(await r.blob());
+    const keys = Object.keys(snapCache);
+    if (keys.length >= SNAP_CACHE_MAX) { URL.revokeObjectURL(snapCache[keys[0]]); delete snapCache[keys[0]]; }
+    snapCache[eventId] = u;
+    return u;
+  } catch (_) { return null; }
+}
+function SnapImg({ token, eventId }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => { let live = true; snapUrl(token, eventId).then(u => { if (live) setUrl(u); }); return () => { live = false; }; }, [token, eventId]);
+  return <img src={url} alt="" />;
+}
+async function downloadClip(token, ev) {
+  try {
+    const r = await fetch('/api/evidence/' + ev.event_id + '/clip', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const u = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a');
+    a.href = u; a.download = 'bhairav_' + ev.event_id + '.mp4';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 5000);
+  } catch (_) { alert('Clip download failed (operator+ required, clip may be empty).'); }
+}
+
+// ---------- Login ----------
+function Login({ onLogin }) {
+  const [username, setUsername] = useState('admin');
+  const [password, setPassword] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true); setErr('');
+    try {
+      const res = await api().login(username, password);
+      onLogin(res.token, res.role, res.username);
+    } catch (ex) {
+      setErr('Invalid username or password.');
+    } finally { setBusy(false); }
+  }
+  return (
+    <div className="login-wrap">
+      <form className="login-card" onSubmit={submit}>
+        <h1>🛰 BHAIRAV <span style={{color:'var(--cyan)'}}>Command Center</span></h1>
+        <div className="sub">Behavioral Hazard Analysis &amp; Intelligent Real-time Action Vigilance</div>
+        <div className="field">
+          <label>Username</label>
+          <input value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" />
+        </div>
+        <div className="field">
+          <label>Password</label>
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
+        </div>
+        <div className="err">{err}</div>
+        <button className="btn btn-primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+        <div className="sub" style={{marginTop:16, textAlign:'center', lineHeight:1.6}}>
+          demo accounts:<br/>admin / admin123 · operator / operator123<br/>analyst / analyst123 · viewer / viewer123
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ---------- Live tab ----------
+function drawOverlay(canvas, img, imgW, imgH, tracks, poses, alerts, sevByTrack) {
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = imgW * dpr; canvas.height = imgH * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, imgW, imgH);
+  const sx = canvas.clientWidth / imgW, sy = canvas.clientHeight / imgH;
+  ctx.scale(sx, sy);
+  if (img && img.complete) ctx.drawImage(img, 0, 0, imgW, imgH);   // the actual frame
+  // tracks
+  for (const t of tracks || []) {
+    const [x1, y1, x2, y2] = t.bbox;
+    const col = t.label === 'person' ? '#22d3ee' : '#f59e0b';
+    ctx.strokeStyle = col; ctx.lineWidth = 2;
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    ctx.fillStyle = 'rgba(15,23,42,.85)';
+    ctx.font = '11px system-ui';
+    const tag = `#${t.id} ${t.label}`;
+    const tw = ctx.measureText(tag).width + 8;
+    ctx.fillRect(x1, Math.max(0, y1 - 16), tw, 16);
+    ctx.fillStyle = col;
+    ctx.fillText(tag, x1 + 4, Math.max(11, y1 - 5));
+  }
+  // poses (stick figures)
+  for (const p of poses || []) {
+    const P = p.kps || [];
+    const pt = i => (P[i] && P[i][2] > 0.1) ? { x: P[i][0] * imgW, y: P[i][1] * imgH } : null;
+    const bones = [[0,5],[0,6],[5,6],[5,7],[7,9],[6,8],[8,10],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
+    ctx.strokeStyle = '#fb923c'; ctx.lineWidth = 1.5;
+    for (const [a, b] of bones) { const pa = pt(a), pb = pt(b); if (pa && pb) { ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke(); } }
+    ctx.fillStyle = '#fb923c';
+    for (let i = 0; i < P.length; i++) { const q = pt(i); if (q) { ctx.beginPath(); ctx.arc(q.x, q.y, 2, 0, 7); ctx.fill(); } }
+  }
+  // alert tags on tracks
+  for (const [tid, sev] of Object.entries(sevByTrack || {})) {
+    const t = (tracks || []).find(x => String(x.id) === String(tid));
+    if (!t) continue;
+    const [x1, y1] = t.bbox;
+    ctx.fillStyle = SEV_COLORS[sev] || '#ef4444';
+    ctx.font = 'bold 12px system-ui';
+    const label = sev.toUpperCase();
+    const tw = ctx.measureText(label).width + 10;
+    ctx.fillRect(x1, Math.max(0, y1 - 32), tw, 18);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, x1 + 5, Math.max(13, y1 - 18));
+  }
+}
+
+function LiveTab({ token }) {
+  const canvasRef = useRef(null);
+  const [frame, setFrame] = useState(null);   // {jpeg, tracks, poses, alerts}
+  const [status, setStatus] = useState('connecting');
+  const [feed, setFeed] = useState([]);
+  const [hud, setHud] = useState({ tracks: 0, persons: 0, vehicles: 0, fps: 0, alerts: 0 });
+  const [recent, setRecent] = useState([]);
+  const [connected, setConnected] = useState(false);
+  const fpsRef = useRef({ t: 0, n: 0 });
+
+  useEffect(() => {
+    let ws;
+    let alive = true;
+    let retry = 0;
+    let timer = null;
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    function connect() {
+      ws = new WebSocket(`${proto}://${location.host}/ws/stream?token=${token}`);
+      setStatus('connecting');
+      ws.onopen = () => { if (alive) { retry = 0; setStatus('live'); setConnected(true); } };
+      ws.onmessage = (ev) => {
+        if (!alive) return;
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'ping') return;
+        if (msg.type === 'frame') {
+          setFrame({ jpeg: msg.jpeg, tracks: msg.tracks, poses: msg.poses, alerts: msg.alerts });
+          const now = performance.now();
+          const fr = fpsRef.current;
+          if (now - fr.t > 1000) { fr.t = now; fr.n = 1; } else fr.n++;
+          const persons = (msg.tracks || []).filter(t => t.label === 'person').length;
+          setHud({ tracks: (msg.tracks || []).length, persons, vehicles: (msg.tracks || []).length - persons, fps: Math.round(fr.n), alerts: (msg.alerts || []).length });
+          if (msg.alerts && msg.alerts.length) {
+            const items = msg.alerts.map(a => ({ ...a, _id: a.timestamp + a.rule + (a.track_id || 0) }));
+            setFeed(f => [...items.reverse(), ...f].slice(0, 40));
+            setRecent(items);
+          }
+        }
+      };
+      ws.onclose = () => { if (alive) { setStatus('offline'); setConnected(false); retry++; timer = setTimeout(connect, Math.min(2000 * retry, 10000)); } };
+      ws.onerror = () => { if (alive) ws.close(); };
+    }
+    connect();
+    return () => { alive = false; if (timer) clearTimeout(timer); try { ws.close(); } catch (_) {} };
+  }, [token]);
+
+  // paint frame + overlay once per incoming frame
+  useEffect(() => {
+    if (!frame || !canvasRef.current) return;
+    const img = new Image();
+    img.onload = () => {
+      if (!canvasRef.current) return;
+      const sevByTrack = {};
+      for (const a of frame.alerts || []) if (a.track_id != null) sevByTrack[a.track_id] = a.severity;
+      drawOverlay(canvasRef.current, img, img.naturalWidth, img.naturalHeight, frame.tracks, frame.poses, frame.alerts, sevByTrack);
+    };
+    img.src = 'data:image/jpeg;base64,' + frame.jpeg;
+  }, [frame]);
+
+  useEffect(() => {
+    api(token).get('/api/alerts/recent?limit=30').then(r => setRecent(r.alerts || [])).catch(() => {});
+  }, [token]);
+
+  return (
+    <div className="live-grid">
+      <div className="stream-card">
+        <div className="stream-head">
+          <span className="cam">📷 CAM-01 — Synthetic Plaza</span>
+          <span className="pill"><span className={'dot ' + (connected ? 'live' : 'idle')} />{status}</span>
+          <span className="spacer" />
+          <span style={{fontSize:11}}>frame {frame ? (frame.ts || 0).toFixed(1) + 's' : '—'}</span>
+        </div>
+        <div className="stream-body">
+          <canvas ref={canvasRef} style={{width:'100%', height:'100%'}} />
+          <div className="stream-status">LIVE • pose + tracking overlay</div>
+        </div>
+        <div className="hud-row">
+          <span>PERSONS <b>{hud.persons}</b></span>
+          <span>VEHICLES <b>{hud.vehicles}</b></span>
+          <span>TRACKS <b>{hud.tracks}</b></span>
+          <span>ACTIVE ALERTS <b>{hud.alerts}</b></span>
+          <span>FPS <b>{hud.fps}</b></span>
+        </div>
+      </div>
+      <div className="feed">
+        <div className="feed-head">🚨 Live alert feed</div>
+        <div className="feed-list">
+          {feed.length === 0 && <div className="feed-empty">Waiting for alerts… (loitering, fight, fall, chase, trespass, crowd, anomaly)</div>}
+          {feed.map((a, i) => (
+            <div className="feed-item" key={a._id || i}>
+              <span className="sev" style={{ background: SEV_COLORS[a.severity] || '#94a3b8' }} />
+              <span className="msg">{a.message}</span>
+              <span className="rule">{a.rule}</span>
+              <span className="ts">{a.timestamp.toFixed(1)}s</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Evidence tab ----------
+function EvidenceTab({ token, role }) {
+  const [rows, setRows] = useState(null);
+  const [q, setQ] = useState('');
+  const [rule, setRule] = useState('');
+  const [sev, setSev] = useState('');
+  const [sel, setSel] = useState(null);
+  const [err, setErr] = useState('');
+  const [clipUrl, setClipUrl] = useState(null);
+
+  const canDownload = role === 'operator' || role === 'analyst' || role === 'admin';
+  const canExport = role === 'analyst' || role === 'admin';
+  const canNote = canExport;
+  const canDelete = role === 'admin';
+
+  // filters via ref so the debounced load always sees the latest values
+  const filters = useRef({ q: '', rule: '', sev: '' });
+  filters.current = { q, rule, sev };
+
+  const load = useCallback(async () => {
+    const f = filters.current;
+    const params = new URLSearchParams();
+    if (f.q) params.set('q', f.q);
+    if (f.rule) params.set('rule', f.rule);
+    if (f.sev) params.set('severity', f.sev);
+    params.set('limit', '200');
+    try {
+      const res = await api(token).get('/api/evidence?' + params.toString());
+      setRows(res.events || []);
+    } catch (ex) { setErr('Failed to load evidence'); }
+  }, [token]);
+
+  function debounce(fn, ms) {
+    let t;
+    return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+  }
+  const debouncedLoad = useRef(debounce(load, 400)).current;
+
+  useEffect(() => { load(); }, [load, rule, sev]);
+  useEffect(() => {
+    if (q === '') load(); else debouncedLoad();
+  }, [q, load]);
+
+  function closeModal() {
+    if (clipUrl) { URL.revokeObjectURL(clipUrl); setClipUrl(null); }
+    setSel(null);
+  }
+  async function openDetail(e) {
+    if (clipUrl) { URL.revokeObjectURL(clipUrl); setClipUrl(null); }  // never show a stale clip
+    try {
+      const d = await api(token).get('/api/evidence/' + e.event_id);
+      setSel(d);
+    } catch (ex) { setErr('Could not load detail'); }
+  }
+  async function del(e) {
+    if (!confirm('Delete evidence ' + e.event_id + '? This is audited.')) return;
+    fetch('/api/evidence/' + e.event_id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } })
+      .then(() => { closeModal(); load(); }).catch(() => setErr('Delete failed'));
+  }
+  async function expire() {
+    if (!confirm('Run retention policy now (30 days)?')) return;
+    fetch('/api/evidence/expire', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ max_age_days: 30 }) })
+      .then(r => r.json()).then(r => { setErr('Expired ' + r.expired + ' events'); load(); });
+  }
+  async function exportZip() {
+    const params = new URLSearchParams();
+    const f = filters.current;
+    if (f.q) params.set('q', f.q);
+    if (f.rule) params.set('rule', f.rule);
+    if (f.sev) params.set('severity', f.sev);
+    params.set('limit', '500');
+    try {
+      const r = await fetch('/api/evidence/export?' + params.toString(), { headers: { 'Authorization': 'Bearer ' + token } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const u = URL.createObjectURL(await r.blob());
+      const a = document.createElement('a');
+      a.href = u; a.download = 'bhairav_export.zip';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(u), 5000);
+      setErr('Exported ' + (f.q || f.rule || f.sev ? 'filtered' : 'latest') + ' results (zip)');
+    } catch (_) { setErr('Export failed (analyst+ required).'); }
+  }
+  async function playClip(ev) {
+    try {
+      const r = await fetch('/api/evidence/' + ev.event_id + '/clip', { headers: { 'Authorization': 'Bearer ' + token } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (clipUrl) URL.revokeObjectURL(clipUrl);
+      setClipUrl(URL.createObjectURL(await r.blob()));
+    } catch (_) { setErr('Clip unavailable (operator+ required).'); }
+  }
+  async function setStatus(ev, status) {
+    try {
+      const r = await fetch('/api/evidence/' + ev.event_id + '/status', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ status }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'HTTP ' + r.status);
+      setSel(d); setErr('Status → ' + status);
+    } catch (ex) { setErr(String(ex.message || ex)); }
+  }
+  async function addNote(ev) {
+    const text = (document.getElementById('note-input') || {}).value || '';
+    if (!text.trim()) return;
+    try {
+      const r = await fetch('/api/evidence/' + ev.event_id + '/notes', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ text }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'HTTP ' + r.status);
+      document.getElementById('note-input').value = '';
+      setSel(d);
+    } catch (ex) { setErr(String(ex.message || ex)); }
+  }
+
+  return (
+    <div>
+      <div className="search-row">
+        <input type="text" placeholder="Search message, rule or zone… (e.g. fight, plaza, fall)" value={q} onChange={e => setQ(e.target.value)} />
+        <select value={rule} onChange={e => setRule(e.target.value)}>
+          <option value="">all rules</option>
+          {RULES.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <select value={sev} onChange={e => setSev(e.target.value)}>
+          <option value="">all severities</option>
+          {['yellow','orange','red'].map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        {canExport && <button className="btn btn-ghost" onClick={exportZip}>📦 export zip</button>}
+        {canDelete && <button className="btn btn-ghost" onClick={expire}>🧹 run retention</button>}
+      </div>
+      {err && <div className="err">{err}</div>}
+      {rows === null ? <div className="loading">Loading evidence…</div> :
+        rows.length === 0 ? <div className="feed-empty">No evidence matches.</div> :
+        <>
+          <div className="count">{rows.length} events</div>
+          <div className="ev-grid">
+            {rows.map(e => (
+              <div className="ev-card" key={e.event_id} onClick={() => openDetail(e)}>
+                <SnapImg token={token} eventId={e.event_id} />
+                <div className="ev-body">
+                  <div className="ev-top">
+                    <span className="sev-badge" style={sevStyle(e.severity)}>{e.severity.toUpperCase()}</span>
+                    <span className="ev-rule">{e.rule}</span>
+                  </div>
+                  <div className="ev-meta">t={e.start_ts.toFixed(1)}s · {e.frame_count} frames · {e.camera}</div>
+                  <div className="ev-msg">{e.message}</div>
+                  <div className="ev-flag">{e.blurred ? '🫥 face-blur' : ''}{e.encrypted ? ' 🔒 encrypted' : ''}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>}
+      {sel && (
+        <div className="modal-back" onClick={closeModal}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <span className="title">{sel.rule.toUpperCase()} — {sel.event_id}</span>
+              <span className="sev-badge" style={sevStyle(sel.severity)}>{sel.severity.toUpperCase()}</span>
+              <button className="modal-close" onClick={closeModal}>×</button>
+            </div>
+            <div className="modal-body">
+              <SnapImg token={token} eventId={sel.event_id} />
+              <div className="meta-grid">
+                <div className="meta-cell"><div className="k">Rule</div><div className="v">{sel.rule}</div></div>
+                <div className="meta-cell"><div className="k">Severity</div><div className="v">{sel.severity}</div></div>
+                <div className="meta-cell"><div className="k">Zone</div><div className="v">{sel.zone || '—'}</div></div>
+                <div className="meta-cell"><div className="k">Track</div><div className="v">{sel.track_id ?? '—'}</div></div>
+                <div className="meta-cell"><div className="k">Confidence</div><div className="v">{sel.confidence}</div></div>
+                <div className="meta-cell"><div className="k">Window</div><div className="v">{sel.start_ts.toFixed(1)}s → {sel.end_ts.toFixed(1)}s</div></div>
+                <div className="meta-cell"><div className="k">Frames</div><div className="v">{sel.frame_count}</div></div>
+                <div className="meta-cell"><div className="k">Privacy</div><div className="v">{sel.blurred ? '🫥 face-blur' : 'none'}{sel.encrypted ? ' 🔒' : ''}</div></div>
+              </div>
+              <div className="modal-actions">
+        {canDownload && (
+          <button className="btn btn-primary" onClick={() => playClip(sel)}>▶ Play clip</button>
+        )}
+        {canDownload && (
+          <button className="btn btn-ghost" onClick={() => downloadClip(token, sel)}>⬇ Download mp4</button>
+        )}
+        {!canDownload && <span className="pill">clip playback requires operator+</span>}
+        {clipUrl && <video controls autoPlay src={clipUrl} style={{marginTop:14}} />}
+        {canDelete && <button className="btn btn-ghost" onClick={() => del(sel)}>🗑 Delete evidence</button>}
+      </div>
+      {canDownload && (
+        <div className="note-box">
+          <div className="meta-cell"><div className="k">Status</div><div className="v">
+            <select value={sel.status || 'new'} onChange={e => setStatus(sel, e.target.value)}>
+              <option value="new">new</option>
+              <option value="acknowledged">acknowledged</option>
+              {(role === 'analyst' || role === 'admin') ? <option value="resolved">resolved</option> : null}
+            </select>
+          </div></div>
+          {canNote && (
+            <div style={{display:'flex', gap:8, flex:1, minWidth:200}}>
+              <input id="note-input" type="text" placeholder="Add an investigation note…" onKeyDown={e => { if (e.key === 'Enter') addNote(sel); }} />
+              <button className="btn btn-ghost" onClick={() => addNote(sel)}>＋ note</button>
+            </div>
+          )}
+          {(sel.notes || []).map((n, i) => (
+            <div className="note-item" key={i}><b>{n.actor}</b> <span className="muted">{new Date(n.ts * 1000).toLocaleString()}</span> — {n.text}</div>
+          ))}
+        </div>
+      )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Audit tab ----------
+function AuditTab({ token }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    api(token).get('/api/audit?limit=100').then(setData).catch(() => setErr('Audit trail requires analyst+ (403 otherwise).'));
+  }, [token]);
+  if (err) return <div className="err">{err}</div>;
+  if (!data) return <div className="loading">Loading audit trail…</div>;
+  return (
+    <div>
+      {data.ok
+        ? <div className="audit-ok">✓ Hash chain verified — {data.entries.length} entries, no tampering detected</div>
+        : <div className="audit-bad">✗ TAMPER DETECTED — {data.problems.join('; ')}</div>}
+      <table className="tbl">
+        <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Entry hash</th></tr></thead>
+        <tbody>
+          {data.entries.slice().reverse().map((e, i) => (
+            <tr key={i}>
+              <td className="muted">{e.ts}</td>
+              <td>{e.actor}</td>
+              <td>{e.action}</td>
+              <td className="muted">{e.target || '—'}</td>
+              <td className="hash">{String(e._hash || '').slice(0, 16)}…</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---------- Status tab ----------
+function StatusTab({ token, role }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    api(token).get('/api/status').then(setData).catch(() => setErr('Could not load status.'));
+  }, [token]);
+  if (err) return <div className="err">{err}</div>;
+  if (!data) return <div className="loading">Loading status…</div>;
+  const ev = data.evidence || {};
+  const sevs = ['red', 'orange', 'yellow'];
+  const maxSev = Math.max(1, ...sevs.map(s => ev.by_severity?.[s] || 0));
+  const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : n >= 1e3 ? (n / 1e3).toFixed(1) + ' KB' : n + ' B';
+  const up = data.pipeline?.uptime_sec || 0;
+  return (
+    <div>
+      <div className="stat-grid">
+        <div className="stat-card"><div className="k">Uptime</div><div className="v">{Math.floor(up / 3600)}h {Math.floor((up % 3600) / 60)}m</div><div className="s">pipeline running</div></div>
+        <div className="stat-card"><div className="k">Frames</div><div className="v">{data.pipeline?.frames || 0}</div><div className="s">@{data.pipeline?.fps || 0} fps</div></div>
+        <div className="stat-card"><div className="k">Alerts fired</div><div className="v">{data.pipeline?.alerts || 0}</div><div className="s">since start</div></div>
+        <div className="stat-card"><div className="k">Live clients</div><div className="v">{data.clients || 0}</div><div className="s">WebSocket viewers</div></div>
+        <div className="stat-card"><div className="k">Evidence events</div><div className="v">{ev.total || 0}</div><div className="s">{fmt(ev.storage_bytes || 0)} on disk</div></div>
+        <div className="stat-card"><div className="k">Accounts</div><div className="v">{data.users || 0}</div><div className="s">registered users</div></div>
+        <div className="stat-card"><div className="k">Webhook</div><div className="v">{data.webhook ? '🔔 on' : 'off'}</div><div className="s">red alerts → endpoint</div></div>
+        <div className="stat-card"><div className="k">Audit chain</div><div className="v" style={{fontSize: 18}}>{data.audit?.ok ? '✓ intact' : '✗ TAMPERED'}</div><div className="s">{data.audit?.entries || 0} entries</div></div>
+      </div>
+      <div className="stat-col">
+        <h3>Evidence by severity</h3>
+        {sevs.map(s => (
+          <div className="sev-row" key={s}>
+            <span style={{color: SEV_COLORS[s]}}>{s}</span>
+            <div className="bar"><div className="fill" style={{width: (100 * (ev.by_severity?.[s] || 0) / maxSev) + '%', background: SEV_COLORS[s]}} /></div>
+            <span>{ev.by_severity?.[s] || 0}</span>
+          </div>
+        ))}
+      </div>
+      <div className="stat-col">
+        <h3>By rule</h3>
+        <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+          {Object.entries(ev.by_rule || {}).map(([r, n]) => (
+            <span className="pill" key={r}>{r} <b style={{color:'var(--text)'}}>{n}</b></span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Users tab (admin) ----------
+function UsersTab({ token, me }) {
+  const [users, setUsers] = useState(null);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState('viewer');
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  async function load() {
+    try { setUsers((await api(token).get('/api/users')).users); }
+    catch (_) { setErr('Could not load users.'); }
+  }
+  useEffect(() => { load(); }, [token]);
+  async function create(e) {
+    e.preventDefault();
+    setErr(''); setMsg('');
+    try {
+      const r = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ username, password, role }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'HTTP ' + r.status);
+      setUsername(''); setPassword(''); setMsg('Created ' + d.username + ' (' + d.role + ')');
+      load();
+    } catch (ex) { setErr(String(ex.message || ex)); }
+  }
+  async function act(u, kind) {
+    if (kind === 'delete' && !confirm('Delete user ' + u.username + '?')) return;
+    try {
+      let r;
+      if (kind === 'delete') r = await fetch('/api/users/' + u.username, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
+      else if (kind === 'lock') r = await fetch('/api/users/' + u.username + '/lock', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ locked: true }) });
+      else r = await fetch('/api/users/' + u.username + '/lock', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ locked: false }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || 'HTTP ' + r.status);
+      setMsg(kind === 'delete' ? 'Deleted ' + u.username : (u.locked ? 'Unlocked ' : 'Locked ') + u.username);
+      load();
+    } catch (ex) { setErr(String(ex.message || ex)); }
+  }
+  if (err) return <div className="err">{err}</div>;
+  if (!users) return <div className="loading">Loading users…</div>;
+  return (
+    <div>
+      <form className="user-form" onSubmit={create}>
+        <input placeholder="username" value={username} onChange={e => setUsername(e.target.value)} />
+        <input type="password" placeholder="password (6+ chars)" value={password} onChange={e => setPassword(e.target.value)} />
+        <select value={role} onChange={e => setRole(e.target.value)}>
+          <option value="viewer">viewer</option>
+          <option value="operator">operator</option>
+          <option value="analyst">analyst</option>
+          <option value="admin">admin</option>
+        </select>
+        <button className="btn btn-primary" style={{width:'auto'}}>＋ create user</button>
+      </form>
+      {msg && <div style={{color:'var(--green)', fontSize:13, marginBottom:12}}>{msg}</div>}
+      {err && <div className="err">{err}</div>}
+      <table className="tbl">
+        <thead><tr><th>Username</th><th>Role</th><th>Created</th><th>Last login</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {users.map(u => (
+            <tr key={u.username}>
+              <td>{u.username}{u.username === me ? ' (you)' : ''}</td>
+              <td>{u.role}</td>
+              <td className="muted">{new Date(u.created * 1000).toLocaleDateString()}</td>
+              <td className="muted">{u.last_login ? new Date(u.last_login * 1000).toLocaleString() : 'never'}</td>
+              <td>{u.locked ? <span className="chip" style={{background:'#450a0a', color:'var(--red)'}}>locked</span> : <span className="chip" style={{background:'#052e16', color:'var(--green)'}}>active</span>}</td>
+              <td style={{whiteSpace:'nowrap'}}>
+                {u.username !== me && (
+                  <>
+                    <button className="lock-btn" onClick={() => act(u, u.locked ? 'unlock' : 'lock')}>{u.locked ? '🔓 unlock' : '🔒 lock'}</button>
+                    <button className="del-btn" style={{marginLeft:6}} onClick={() => act(u, 'delete')}>✕ delete</button>
+                  </>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---------- App shell ----------
+function App() {
+  const [auth, setAuth] = useState(() => {
+    try {
+      const s = localStorage.getItem('bhairav-auth');
+      return s ? JSON.parse(s) : null;
+    } catch (_) { return null; }
+  });
+  const [tab, setTab] = useState('live');
+
+  if (!auth || !auth.token) {
+    return <Login onLogin={(token, role, username) => {
+      const a = { token, role, username };
+      localStorage.setItem('bhairav-auth', JSON.stringify(a));
+      setAuth(a); setTab('live');
+    }} />;
+  }
+
+  const tabs = [
+    { id: 'live', label: '📡 Live' },
+    { id: 'evidence', label: '🗂 Evidence' },
+    { id: 'status', label: '📊 Status' },
+  ];
+  if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'audit', label: '🛡 Audit' });
+  if (auth.role === 'admin') tabs.push({ id: 'users', label: '👥 Users' });
+
+  return (
+    <>
+      <div className="topbar">
+        <div className="brand">🛰 BHAIRAV <span>Command Center</span></div>
+        <div className="tabs">
+          {tabs.map(t => (
+            <button key={t.id} className={'tab' + (tab === t.id ? ' active' : '')}
+                    onClick={() => setTab(t.id)}>{t.label}</button>
+          ))}
+        </div>
+        <div className="spacer" />
+        <span className="pill"><span className="dot live" />server connected</span>
+        <span className="user">{auth.username} · <b>{auth.role}</b></span>
+        <button className="logout" onClick={() => { localStorage.removeItem('bhairav-auth'); setAuth(null); }}>Sign out</button>
+      </div>
+      <main>
+        {tab === 'live' && <LiveTab token={auth.token} />}
+        {tab === 'evidence' && <EvidenceTab token={auth.token} role={auth.role} />}
+        {tab === 'status' && <StatusTab token={auth.token} role={auth.role} />}
+        {tab === 'audit' && <AuditTab token={auth.token} />}
+        {tab === 'users' && <UsersTab token={auth.token} me={auth.username} />}
+      </main>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

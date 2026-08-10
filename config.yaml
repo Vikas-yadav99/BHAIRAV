@@ -1,0 +1,106 @@
+# BHAIRAV Phase 2 - Behavior Intelligence configuration
+# All zone coordinates are NORMALIZED (0..1) relative to frame width/height.
+
+# detector: blob (synthetic, works offline) | yolo (real, needs ultralytics) | auto
+detector: blob
+
+model:
+  name: yolov8n.pt        # auto-downloaded by ultralytics on first use
+  conf: 0.35
+  imgsz: 640
+  classes: [0, 2, 5, 7]   # COCO: person, car, bus, truck
+  tracker: bytetrack.yaml # ultralytics built-in ByteTrack
+
+synthetic:
+  fps: 15
+  seed: 7
+  duration_sec: 24.0
+  width: 1280
+  height: 720
+
+alert:
+  cooldown_sec: 10.0      # min gap before the same (rule, zone, track, severity) refires
+
+zones:
+  - name: plaza
+    kind: monitored       # monitored => loitering + crowd density rules apply
+    points: [[0.30, 0.30], [0.60, 0.30], [0.60, 0.55], [0.30, 0.55]]
+  - name: server_room
+    kind: restricted      # restricted => zone-crossing rule applies
+    points: [[0.70, 0.35], [0.92, 0.35], [0.92, 0.62], [0.70, 0.62]]
+
+rules:
+  # ---- Phase 1: geometric / statistical rules ----
+  loitering:
+    enabled: true
+    duration_sec: 5.0     # time inside a monitored zone before an alert
+    escalate: true        # 2x duration escalates yellow -> orange
+    zones: [plaza]        # optional zone filter
+  zone_crossing:
+    enabled: true
+    severity: red
+    include_vehicles: true
+  crowd_density:
+    enabled: true
+    min_people: 4
+    severity: orange
+    escalate: true        # 2x threshold escalates orange -> red
+
+  # ---- Phase 2: behavior intelligence ----
+  fall:
+    enabled: true
+    severity: orange
+    escalate: true        # stays down 2x the confirm window -> red
+    vy_thresh_norm: 0.10  # downward centroid speed (x frame height / s)
+    flat_aspect: 1.0      # bbox h/w below which a body counts as horizontal
+    down_sec: 0.5         # how long the person must stay down to confirm
+  fight:
+    enabled: true
+    severity: red
+    proximity_norm: 0.10  # pair centroid distance (x frame diagonal)
+    speed_norm: 0.08      # min max-pair speed (x frame height / s)
+    min_speed_norm: 0.03  # BOTH people must be moving (no bystander false-positives)
+    wobble_deg: 25.0      # min heading-wobble per person (erratic motion)
+    duration_sec: 1.5     # sustained before alerting
+  chase:
+    enabled: true
+    severity: orange
+    escalate: true        # 2x duration escalates orange -> red
+    runner_speed_norm: 0.065
+    follower_speed_norm: 0.08
+    heading_deg: 30       # max angle between motion and pursuit vector
+    max_dist_norm: 0.30   # max gap between runner and follower
+    duration_sec: 2.0
+  trespass:
+    enabled: true
+    severity: orange
+    escalate: true        # 2x dwell escalates orange -> red
+    dwell_sec: 2.5        # time inside a restricted zone before an alert
+  anomaly:
+    enabled: true         # amber-flag layer; learn 'normal' then flag outliers
+    severity: yellow
+    z_thresh: 3.0         # z-score above baseline before flagging
+    min_count: 2
+    warmup_frames: 45     # frames used to learn the per-zone baseline
+
+# ---- Phase 3: backend & evidence ----
+backend:
+  host: 127.0.0.1
+  port: 8000
+  secret: dev-secret-change-me   # CHANGE in production (or set BHAIRAV_SECRET)
+  max_recent_alerts: 200
+  users_file: output/users.json  # PBKDF2-hashed user store (Phase 5)
+  webhook_url: null              # POST red alerts here (Slack-style); null = off
+
+evidence:
+  dir: output/evidence
+  camera: CAM-01
+  fps: 15
+  pre_sec: 5.0        # pre-event ring buffer (seconds before the alert)
+  post_sec: 5.0       # seconds of quiet before an event is finalized
+  min_gap_sec: 10.0   # min gap between independent events of the same key
+  blur_faces: true    # privacy: blur head regions in stored evidence
+  encrypt: false      # privacy: AES-256-GCM at rest (set BHAIRAV_EVIDENCE_KEY)
+  retention_days: 30  # expiry policy for stored evidence
+  max_events: 300     # cap on stored events (oldest pruned); keeps the demo
+                      # store small so searches stay instant even on slow disks

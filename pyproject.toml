@@ -1,0 +1,25 @@
+[project]
+name = "bhairav"
+version = "0.1.0"
+description = "BHAIRAV - Behavioral Hazard Analysis & Intelligent Real-time Action Vigilance. Phase 1: Core Vision MVP."
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python>=4.8",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+ml = ["ultralytics>=8.2"]   # brings PyTorch + ByteTrack for real detection/tracking
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

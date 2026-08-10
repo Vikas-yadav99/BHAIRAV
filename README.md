@@ -1,0 +1,261 @@
+# BHAIRAV — Phase 5: Users, Workflow & Ops
+
+**B**ehavioral **H**azard **A**nalysis & **I**ntelligent **R**eal-time **A**ction **V**igilance
+
+Working, end-to-end vision product — **video in → detection → tracking → pose →
+behavior alerts → evidence (pre/during/post) → privacy → REST + WebSocket API →
+React command center** — with zero ML dependencies required to run the demo.
+Phase 1 delivered the core MVP; Phase 2 added behavior intelligence
+(fight/fall/chase/trespass/anomaly + pose); Phase 3 added the product backend &
+evidence (FastAPI + WebSocket live stream, pre/during/post evidence pipeline,
+face blur, AES-GCM encryption at rest, RBAC, tamper-evident audit logs, evidence
+expiry); Phase 4 added the browser dashboard; Phase 5 closes the security hole
+in login (real password accounts, not pick-a-role), adds an evidence workflow
+(status / analyst notes / ZIP export), an ops Status page, in-browser clip
+playback, webhook notifications for red alerts, and hardens auth (token
+revocation on lock, brute-force lockout, hash-free API responses).
+
+> Phase 0 (Python → NumPy → OpenCV → YOLO) is the learning track, done in parallel.
+> When you finish it, install `ultralytics` and the exact same pipeline runs on real
+> CCTV with YOLO + ByteTrack (and `mediapipe` for real pose). Everything here already
+> works today on a deterministic synthetic scene.
+
+## Quick start
+
+```bash
+pip install -r requirements.txt      # numpy, opencv, pyyaml, pytest, fastapi, uvicorn, cryptography
+
+# Watch the synthetic scene live (boxes, skeletons, zones, behavior alerts on screen)
+python scripts/run_demo.py
+
+# Headless + capture evidence (pre/during/post clips, face-blurred)
+python scripts/run_demo.py --source blob --headless --evidence output/evidence
+
+# HTML run report (frames + alert timeline + evidence cards)
+python scripts/report.py --evidence output/evidence   # -> output/report.html
+
+# LIVE SERVER: pipeline -> WebSocket stream + REST API on :8000
+python scripts/serve.py
+# -> open http://localhost:8000/dashboard/  (React command center)
+```
+
+Run the tests:
+
+```bash
+python -m pytest -q                  # 112 tests (Phases 1-5)
+```
+
+## Phase 3-5 - API & evidence
+
+`scripts/serve.py` runs the pipeline in a background thread and exposes:
+
+| Endpoint | Method | Permission | Purpose |
+|---|---|---|---|
+| `/auth/login` | POST | public | `{"username","password"}` -> bearer token |
+| `/health` | GET | public | service status + live clients |
+| `/api/status` | GET | evidence_read | ops: pipeline stats, evidence counts, audit integrity |
+| `/api/evidence` | GET | evidence_read | search (`?rule=&severity=&q=&t0=&t1=`) |
+| `/api/evidence/export` | GET | evidence_export | analyst+: zip bundle of a search (audited) |
+| `/api/evidence/{id}` | GET | evidence_read | one event's metadata |
+| `/api/evidence/{id}/snapshot` | GET | evidence_read | blurred snapshot jpeg |
+| `/api/evidence/{id}/clip` | GET | evidence_download | mp4 clip (audited) |
+| `/api/evidence/{id}/status` | POST | evidence_download | operator+: new → acknowledged → resolved |
+| `/api/evidence/{id}/notes` | POST | audit | analyst+: append investigation note |
+| `/api/evidence/{id}` | DELETE | evidence_delete | delete (audited) |
+| `/api/evidence/expire` | POST | evidence_delete | retention run |
+| `/api/audit` | GET | audit | tamper-evident audit trail |
+| `/api/alerts/recent` | GET | alerts | recent alert feed |
+| `/api/users` | GET/POST | users | admin: list / create accounts |
+| `/api/users/{u}` | DELETE | users | admin: delete account |
+| `/api/users/{u}/lock` | POST | users | admin: lock / unlock (revokes live tokens) |
+| `/api/users/{u}/password` | POST | users | admin: reset password |
+| `/ws/stream?token=` | WS | stream | live frames + alerts |
+
+Roles: `viewer` < `operator` < `analyst` < `admin` (see `src/bhairav/backend/rbac.py`).
+
+**Accounts (Phase 5).** Login now requires real credentials: users live in
+`output/users.json` (or `backend.users_file` in `config.yaml`), passwords are
+salted **PBKDF2-HMAC-SHA256** (200k iterations, stdlib only), verified with a
+constant-time compare, and the response never contains password material.
+Seeded on first run: `admin/admin123`, `operator/operator123`,
+`analyst/analyst123`, `viewer/viewer123` (override the admin password with the
+`BHAIRAV_ADMIN_PW` env var). Failed logins are throttled (5 strikes → 5-minute
+lockout), unknown usernames cost the same PBKDF2 work (no timing-based
+username enumeration), and **locking/deleting an account immediately revokes
+its outstanding tokens** — no 12h grace window.
+
+Tokens are HMAC-signed, 12h TTL. Evidence events are stored as
+`<dir>/<event_id>/{metadata.json, snapshot.jpg, clip.mp4}`; with
+`evidence.encrypt: true` the metadata and clip are AES-256-GCM encrypted at rest
+(wrong key -> unreadable). Face blur uses the pose nose keypoint (falls back to
+the bbox top band) so stored evidence is privacy-safe by default. Audit log
+entries are hash-chained: any tamper or deletion is detected by `verify()`.
+
+```bash
+curl -s -X POST localhost:8000/auth/login -H "Content-Type: application/json"      -d '{"username":"admin","password":"admin123"}'
+# -> {"token":"eyJ...", "role":"admin", ...}
+```
+
+Live server smoke test (what I verified end-to-end):
+login -> evidence search -> viewer denied clip download (403) -> admin 200 ->
+audit chain intact -> WebSocket received live frames (13 tracks + 13 skeletons)
+and alerts (chase escalation, zone crossing, trespass, loitering).
+
+## Phase 4-5 - Dashboard (`dashboard/index.html`)
+
+A single-file **React 18 SPA** (CDN UMD + Babel, no build step) served straight
+from the Phase 3 server, so `python scripts/serve.py` is a complete product:
+
+- **Login** — real username + password (demo accounts shown on the card); the
+  token is stored and sent as a bearer header on every call.
+- **📡 Live** — WebSocket camera wall: the raw frame on a `<canvas>` with boxes,
+  skeleton stick-figures, and per-track severity badges drawn as an overlay,
+  plus HUD stats (persons/vehicles/tracks/alerts/FPS) and a live alert feed.
+- **🗂 Evidence** — searchable grid (text / rule / severity) with face-blurred
+  snapshots; the detail modal now has **in-browser clip playback** (operator+),
+  a **status workflow** (new → acknowledged → resolved), **analyst notes**, a
+  **ZIP export** button (analyst+), plus admin delete and retention run.
+- **📊 Status** — ops page for any logged-in user: uptime, FPS, frames, alerts,
+  live clients, evidence totals by severity/rule, storage, account count,
+  webhook state, and audit-chain integrity.
+- **🛡 Audit** (analyst+) — tamper-evident chain table with a verified / tampered
+  banner; the tab itself is hidden for lower roles.
+- **👥 Users** (admin) — create accounts (username/password/role), lock/unlock
+  (revokes their live tokens), delete; never shows password material.
+
+Role gating is enforced **twice**: the UI hides what the role can't do (Audit
+/ Users tabs, status changes, download / export buttons) *and* the API returns
+401/403 server-side. Evidence snapshots and clips are fetched with the bearer
+token and rendered as blob URLs (plain `<img>`/`<a>` tags can't attach auth
+headers); blob URLs are revoked when the modal closes.
+
+## What fires in the demo scene (24 s, deterministic)
+
+| Time | Alert | Why |
+|------|-------|-----|
+| ~2.1 s | 🟠 CHASE #13 pursuing #12 | runner fleeing + follower aligned → escalates 🔴 ~4.1 s |
+| ~3.0 s | 🟡 ANOMALY in `plaza` | 3 people vs learned baseline 0.1±0.4 (amber flag) |
+| ~3.3 s | 🟠 Crowd of 4+ in `plaza` | crowd-density threshold |
+| ~4.4 s | 🔴 `person #2` in `server_room` | restricted-zone crossing |
+| ~5.9 s | 🔴 FIGHT #10 vs #11 | close pair, high speed, erratic wobble |
+| ~6.9 s | 🟠 TRESPASS #2 in `server_room` | dwell > 2.5 s → escalates 🔴 ~9.4 s |
+| ~7.7 s | 🟡 Loitering 5 s | monitored-zone dwell |
+| ~12.5 s | 🟠 FALL track #9 | vy spike + bbox flattens → 🔴 when stays down |
+
+Every alert carries a **confidence score** (0–1) and rich `details`, logged to
+`output/alerts.jsonl`.
+
+## The Phase 2 behavior layer
+
+```
+src/bhairav/
+├── types.py            # + Keypoint / Pose (17 COCO kpts), Alert.confidence
+├── pose/
+│   ├── base.py             # PoseModel interface: tracks -> skeletons
+│   ├── synthetic.py        # deterministic skeletons per actor role (offline path)
+│   └── mediapipe_model.py  # real CCTV path (lazy `mediapipe` import)
+├── behavior/
+│   ├── kinematics.py       # MotionBuffer: velocity, speed, heading, wobble
+│   ├── fall.py             # vy spike + horizontal body + stays down (orange → red)
+│   ├── fight.py            # close pair, both moving, erratic wobble (red)
+│   ├── chase.py            # follower pursues a fleeing runner (orange → red)
+│   ├── trespass.py         # dwell inside restricted zone (orange → red)
+│   └── anomaly.py          # learned-normal baseline, z-score outliers (yellow)
+├── rules/               # + 5 new rules registered in the engine
+├── detectors/scenario.py   # actors now carry roles: walk / stand / fall / fight / chase
+└── viz.py                  # + skeleton stick-figures, behavior tags/links
+```
+
+Design notes:
+
+- **Every classifier is rule-based and dependency-free**, so it runs today and
+  is unit-testable from synthetic `FrameState`s. The real-CCTV path swaps in
+  the same way Phase 1's YOLO detector does.
+- **Per-step kinematics.** `MotionBuffer` computes velocity from per-sample
+  steps, not net displacement — oscillatory scuffling has ~zero net motion, so
+  window-averaged velocity would miss fights entirely. `mean_speed` and
+  `peak_downward_vy` capture oscillation and fall spikes.
+- **Erratic-motion (wobble) gate for fights.** Straight-line walkers and
+  stationary bystanders can't trigger a fight even when boxes overlap — both
+  parties must be genuinely moving *and* erratic.
+- **Chase needs both pursuit and flight**: the follower's heading must point at
+  the runner *and* the runner must be moving away. Head-on passers-by never
+  fire it.
+- **Fall confirms the person stays down** (grace window) before alerting, so a
+  stumble-and-recover is ignored; escalation to red only when they remain down.
+- **Anomaly is a learned-normal amber layer**: a per-zone baseline is frozen
+  after a warmup window, then z-score outliers are flagged. It's the seam where
+  an autoencoder drops in once torch lands.
+- **Pose strengthens fall detection**: a horizontal torso (`shoulder-hip axis`)
+  confirms a fall even when the bbox stays upright. The synthetic path renders
+  per-role skeletons; MediaPipe provides real ones.
+
+## Going live: real CCTV (after Phase 0 / `pip install ultralytics mediapipe`)
+
+```bash
+# Render the scripted scene to MP4 (handy YOLO test clip)
+python scripts/make_test_video.py    # -> output/sample_scene.mp4
+
+# Run YOLO + ByteTrack (+ MediaPipe pose) on a real clip, webcam, or the sample
+python scripts/run_demo.py --source output/sample_scene.mp4
+python scripts/run_demo.py --source 0
+```
+
+The YOLO path uses `ultralytics` built-in **ByteTrack** (`bytetrack.yaml`) and
+detects COCO classes `[person, car, bus, truck]` (configurable in `config.yaml`
+under `model.classes`). Real pose is wired through `MediaPipePoseModel`.
+
+## Config highlights (`config.yaml`)
+
+- `detector: blob | yolo | auto` — `auto` picks `blob` for the synthetic source
+- `alert.cooldown_sec` — minimum gap before the same alert re-fires
+- `rules.fall / fight / chase / trespass / anomaly` — per-rule thresholds
+  (normalized to frame size so they transfer across resolutions)
+- Severity ladder: green → yellow → orange → red, with escalation at 2× windows
+
+## Deliverables of this milestone
+
+- ✅ Phase 1: detection + tracking + loitering / crossing / crowd alerts
+- ✅ Phase 2: fall / fight / chase / trespass classifiers + anomaly layer
+- ✅ Phase 3: FastAPI + WebSocket live stream, evidence pipeline (pre/during/post),
+     face blur, AES-GCM at rest, RBAC, tamper-evident audit, retention
+- ✅ Phase 4: React command center (live wall, evidence search, audit chain,
+     role-aware UI) served from the same `scripts/serve.py` process
+- ✅ Phase 5: real user accounts (PBKDF2), evidence workflow (status / notes /
+     ZIP export), ops Status page, clip playback, webhook notifications,
+     token revocation on lock, brute-force lockout, hash-free API responses
+- ✅ 112 passing tests (geometry, tracker, rules, classifiers, pose, privacy,
+     evidence, RBAC/audit, users, server incl. dashboard route)
+
+## Phase 5 - what was added and why
+
+The Phase 3/4 login accepted `{username, role}` and minted a token with
+whatever role the client claimed — anyone could log in as admin. Phase 5 fixes
+that and adds the workflow a real command center needs:
+
+- **Real accounts** (`backend/users.py`) — PBKDF2 hashed passwords, seeded demo
+  users, admin-managed lifecycle. The role is now granted by the server, never
+  asserted by the client.
+- **Token revocation** — locking or deleting an account kills its outstanding
+  tokens immediately (checked on every request and the WS handshake), so a
+  fired operator can't keep watching for 12 more hours.
+- **Brute-force protection** — 5 consecutive failures lock the account for 5
+  minutes; unknown usernames burn the same PBKDF2 cost so login timing can't
+  be used to enumerate accounts.
+- **Evidence workflow** — `state.json` sidecar (sealed media untouched):
+  `new → acknowledged (operator+) → resolved (analyst+)`, plus analyst notes
+  and a ZIP export (`manifest.json` + metadata + snapshot per event) that
+  finally uses the previously-unused `evidence_export` permission.
+- **Ops visibility** — `/api/status` + a dashboard Status tab: pipeline stats
+  (frames / FPS / alerts / uptime), evidence by severity and rule, storage,
+  audit-chain integrity, account and client counts.
+- **Webhook notifications** — `backend.webhook_url` in `config.yaml`; red
+  alerts are POSTed fire-and-forget (best-effort, never blocks the pipeline).
+- **UX** — in-browser clip playback in the evidence modal and an export button.
+
+## Next: Phase 6 (real cameras & scale)
+
+Wire the real YOLO + MediaPipe path (Phase 0 foundations), add multi-camera
+support to the dashboard (the evidence store already tags `camera`), and swap
+the file store for a real database. The API/WebSocket seams for all three
+already exist.

@@ -1,0 +1,15 @@
+# BHAIRAV Phase 3 - Evidence & Live API
+#
+# Core deps (required): synthetic demo, rule engine, evidence, tests
+numpy>=1.24
+opencv-python>=4.8
+pyyaml>=6.0
+
+# Phase 3 backend: FastAPI + uvicorn + WebSocket + encryption at rest
+fastapi>=0.110
+uvicorn>=0.29
+websockets>=12.0
+cryptography>=42.0
+
+# Dev
+pytest>=8.0
