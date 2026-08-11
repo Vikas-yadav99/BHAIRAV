@@ -15,9 +15,9 @@ def store(tmp_path):
 
 
 def test_seed_defaults(store):
-    assert store.count() == 4
+    assert store.count() == 5
     names = {u["username"] for u in store.public_view()}
-    assert names == {"admin", "operator", "analyst", "viewer"}
+    assert names == {"admin", "operator", "analyst", "viewer", "police"}
     # public view never leaks password material
     for u in store.public_view():
         assert "hash" not in u and "salt" not in u
@@ -80,7 +80,7 @@ def test_persistence_across_reload(tmp_path):
     s1.create("bob", "secret99", "operator")
     s1.set_locked("viewer", True)
     s2 = UserStore(p, seed=False)  # reload from disk, no reseed
-    assert s2.count() == 5
+    assert s2.count() == 6
     assert s2.authenticate("bob", "secret99") is not None
     assert s2.authenticate("viewer", "viewer123") is None  # lock persisted
     assert s2.get("admin")["salt"]  # salt persisted

@@ -1,0 +1,18 @@
+# BHAIRAV Phase 9 M3 - Prometheus scrape config.
+#
+# /metrics needs a bearer token: either an admin login token or the shared
+# scrape token (BHAIRAV_METRICS_TOKEN env on the app, same value written to
+# the file below). Create the file with:
+#   printf '%s' "$BHAIRAV_METRICS_TOKEN" > deploy/prometheus-token
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: bhairav
+    metrics_path: /metrics
+    bearer_token_file: /etc/prometheus/bhairav-token
+    static_configs:
+      - targets: ["app:8000"]
+        labels:
+          service: bhairav

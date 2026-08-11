@@ -3,7 +3,6 @@
 Unit tests (validation, missing-driver path) run everywhere; integration
 tests need a real PostgreSQL and are gated behind $BHAIRAV_TEST_DB_URL.
 """
-import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -96,7 +95,7 @@ def pg_plates():
 
 
 def test_users_seed_and_authenticate(pg_users):
-    assert pg_users.count() == 4  # admin/operator/analyst/viewer seeded
+    assert pg_users.count() == 5  # admin/operator/analyst/viewer/police seeded
     assert pg_users.authenticate("admin", "admin123")["role"] == "admin"
     assert pg_users.authenticate("admin", "wrong") is None
     assert pg_users.authenticate("ghost", "whatever") is None  # no enumeration

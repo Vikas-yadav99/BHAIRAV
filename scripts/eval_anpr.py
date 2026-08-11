@@ -57,10 +57,9 @@ def main() -> int:
     if args.synthetic:
         # known ground truth: the demo vehicle's plate
         from bhairav.config import load_config
-        from bhairav.pipeline import make_detector, build_engine, run_pipeline
+        from bhairav.pipeline import make_detector
         cfg = load_config(str(ROOT / "config.yaml"))
         det = make_detector(cfg, "blob", "blob")
-        eng = build_engine(cfg)
         seen = set()
         for st in det.stream(source="blob", max_frames=400):
             for tr in st.tracks:

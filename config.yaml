@@ -115,6 +115,13 @@ backend:
   webhook_url: null              # POST red alerts here (Slack-style); null = off
   db: null                      # Phase 8: PostgreSQL URL (postgresql://user:pass@host:5432/bhairav)
                                 # or $BHAIRAV_DB_URL / --db-url; null = file-based evidence store
+  public_token: null            # Phase 9 M5: read-only blurred public monitor.
+                                # Set a token (or $BHAIRAV_PUBLIC_TOKEN) to enable /?public=<token>
+
+# Phase 9 M4 - person re-identification across cameras
+reid:
+  assign_threshold: 0.60   # cosine similarity to count as "same person"
+  sighting_gap_sec: 3.0    # min gap between recorded sightings of one track
 
 evidence:
   dir: output/evidence

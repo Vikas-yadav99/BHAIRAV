@@ -94,7 +94,6 @@ from fastapi.testclient import TestClient
 
 from bhairav.backend.audit import AuditLog
 from bhairav.backend.evidence import EvidenceStore
-from bhairav.backend.hardening import RateLimiter
 from bhairav.backend.server import create_app
 from bhairav.backend.users import UserStore
 

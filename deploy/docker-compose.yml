@@ -29,6 +29,9 @@ services:
       BHAIRAV_SECRET: ${BHAIRAV_SECRET:?set BHAIRAV_SECRET in .env}
       BHAIRAV_EVIDENCE_KEY: ${BHAIRAV_EVIDENCE_KEY:?set BHAIRAV_EVIDENCE_KEY in .env}
       BHAIRAV_ALLOW_DEFAULT_PASSWORDS: "0"
+      # Phase 9 M3: shared scrape token for /metrics (same value in
+      # deploy/prometheus-token). Optional - admin login tokens work too.
+      BHAIRAV_METRICS_TOKEN: ${BHAIRAV_METRICS_TOKEN:-}
       # PostgreSQL (Phase 8): evidence + audit + users + plate watchlist.
       # Remove to stay on the file store (single replica only).
       DATABASE_URL: postgresql://bhairav:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/bhairav
@@ -79,9 +82,69 @@ services:
       retries: 5
     networks: [bhairav]
 
+  # Phase 9 M3 - scheduled PostgreSQL logical backups (every 6h) with
+  # retention pruning + a post-write verify; files land on the backups
+  # volume and are listed/downloadable via /api/ops/backups (admin).
+  backup:
+    image: bhairav:latest
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          echo "[backup] $(date -u) starting";
+          python scripts/backup_db.py --url "$$DATABASE_URL" --dir /backups               --retention 14 --verify || echo "[backup] FAILED (will retry)";
+          sleep 21600;
+        done
+    environment:
+      DATABASE_URL: postgresql://bhairav:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/bhairav
+    volumes:
+      - backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [bhairav]
+
+  # Phase 9 M3 - metrics scraping + dashboards (optional but recommended).
+  # First create the scrape token file (no trailing newline!):
+  #   printf '%s' "$BHAIRAV_METRICS_TOKEN" > deploy/prometheus-token
+  # and set the same BHAIRAV_METRICS_TOKEN on the app service below.
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-token:/etc/prometheus/bhairav-token:ro
+      - prom-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    depends_on:
+      - app
+    networks: [bhairav]
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - graf-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks: [bhairav]
+
 volumes:
   bhairav-data:
   pg-data:
+  backups:
+  prom-data:
+  graf-data:
 
 networks:
   bhairav:

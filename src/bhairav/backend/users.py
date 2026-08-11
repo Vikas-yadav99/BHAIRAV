@@ -47,6 +47,7 @@ DEFAULT_USERS = [
     {"username": "operator", "password": "operator123", "role": "operator"},
     {"username": "analyst", "password": "analyst123", "role": "analyst"},
     {"username": "viewer", "password": "viewer123", "role": "viewer"},
+    {"username": "police", "password": "police123", "role": "police"},
 ]
 
 

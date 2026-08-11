@@ -1,4 +1,4 @@
-# BHAIRAV — Phase 7: Cameras, Real Plates & Deployment
+# BHAIRAV — Phase 9: Validation, CI, Ops, Re-ID & Read-Only Dashboards
 
 **B**ehavioral **H**azard **A**nalysis & **I**ntelligent **R**eal-time **A**ction **V**igilance
 
@@ -475,6 +475,60 @@ actor detection. The dashboard's new Assistant tab shows the parser's plan
 (what it understood), the matching evidence cards, plate reads and audit
 rows. No LLM, no network - deterministic and testable.
 
-## Next: Phase 8 (the wider roadmap)
+## Phase 9 - validation, CI, ops, re-identification, read-only dashboards
 
-Abandoned-object / accident / riot detection, and public/police dashboards.
+**M1 - real-footage validation harness.** `scripts/validate_footage.py <video>`
+replays any clip through the production detector + rules engine and writes a
+JSON + HTML report (frame rate, self-calibrating dropped-frame detection,
+track stats, per-rule alert tallies, threshold checks). Verified against real
+CCTV: `output/real/vtest.avi` runs clean end-to-end with YOLO.
+
+**M2 - CI pipeline.** `.github/workflows/ci.yml` runs ruff lint
+(`scripts/lint.py`, rules pinned in `pyproject.toml`), the unit suite, the
+PostgreSQL integration suite against a `postgres:16` service container
+(`BHAIRAV_TEST_DB_URL`), a server smoke boot (`/health`, `/api/status`,
+`/metrics`, `/ready`), and a `pip install .` + import + version check.
+
+**M3 - PG backups + metrics/health dashboards.**
+
+```bash
+export BHAIRAV_DB_URL=postgresql://bhairav:pass@localhost:5432/bhairav
+python scripts/backup_db.py --retention-days 7      # logical dump, per-day retention
+python scripts/restore_db.py --dump output/backups/bhairav-YYYY-MM-DD.sql
+```
+
+`serve.py` now samples a dependency-free Prometheus registry every 5 s and
+serves it at `/metrics` (pipeline, evidence, audit, DB size/reachability,
+backup age); `/ready` is a live readiness probe. Optionally guard `/metrics`
+with `BHAIRAV_METRICS_TOKEN`. `deploy/` adds `prometheus.yml`, a provisioned
+Grafana dashboard, and compose services for both. The dashboard Status tab
+gains a Health & ops section (DB, backups, live sparklines).
+
+**M4 - person re-identification across cameras.** `src/bhairav/reid.py`
+tracks people by appearance (HSV spatial-pyramid descriptors, adaptive-mean
+gallery, cosine matching - no ML deps) so the same person is linked across
+CAM-01, CAM-02, ... The `/api/reid/*` API and the dashboard's 👤 Re-ID tab
+show subjects, per-camera trails and recent sightings; a PostgreSQL twin
+(`backend/pg_reid.py`) matches the file store. Tune with `reid:` in
+`config.yaml`.
+
+**M5 - police & public read-only dashboards.** A new `police` role gets live
+stream, alerts, evidence browse + clip download - and nothing else (no
+export/delete/audit/users, no rename). Set `backend.public_token` (or
+`BHAIRAV_PUBLIC_TOKEN`) to enable a privacy-blurred public monitor: the
+pipeline publishes sanitized frames (downscaled, heads blurred, no tracking
+or alert metadata) on a dedicated hub channel that authenticated clients
+never see. Open `http://localhost:8000/?public=<token>` for the no-login
+monitor; the server prints the link at startup.
+
+```bash
+export BHAIRAV_PUBLIC_TOKEN=share-with-the-public   # enables /?public=...
+python scripts/serve.py --source blob
+# -> [public] read-only blurred monitor: http://localhost:8000/?public=...
+# -> demo login: police / police123
+```
+
+## Next: the wider roadmap
+
+Abandoned-object / accident / riot detection, person search by physical
+description (clothing color, height), and live alerting to field officers.

@@ -1,6 +1,5 @@
 """Phase 8 M4 - Investigation Assistant: offline NL parser + endpoint."""
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -68,7 +67,6 @@ def test_rule_synonyms():
 
 
 def test_endpoint_returns_plan_events_and_audit(tmp_path):
-    fastapi = pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
 
     from bhairav.backend.audit import AuditLog

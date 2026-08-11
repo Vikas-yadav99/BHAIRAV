@@ -23,3 +23,13 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# Safe subset only: E402 (sys.path-before-imports) is an intentional
+# repo convention in scripts/ and tests/ and stays excluded.
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E402"]

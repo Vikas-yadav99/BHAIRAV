@@ -297,7 +297,7 @@ def test_trespass_escalates_to_red():
 
 
 def test_alert_to_dict_includes_confidence():
-    a = FallRule({"enabled": True}).evaluate  # just reference the class exists
+    FallRule({"enabled": True}).evaluate  # just reference the class exists
     from bhairav.types import Alert
     alert = Alert(rule="fall", zone=None, track_id=1, severity=Severity.ORANGE,
                   message="x", frame_id=1, timestamp=1.0, confidence=0.83)

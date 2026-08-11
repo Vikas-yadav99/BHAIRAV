@@ -185,6 +185,25 @@ table.tbl td.muted { color: var(--muted); }
 /* ---------- misc ---------- */
 .loading { text-align: center; color: var(--muted); padding: 40px; font-size: 14px; }
 .chip { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; letter-spacing: .5px; }
+
+/* Phase 9 M5 - public monitor */
+.public-wrap { min-height: 100vh; display: flex; flex-direction: column; }
+.public-head { display: flex; align-items: center; gap: 12px; padding: 14px 22px; border-bottom: 1px solid var(--border); background: rgba(10, 15, 30, .85); }
+.public-grid { display: grid; gap: 14px; }
+.public-card { background: #0d1526; border: 1px solid var(--border); border-radius: 12px; padding: 10px; overflow: hidden; }
+.public-card img { width: 100%; display: block; border-radius: 8px; }
+.public-cam { font-size: 12px; font-weight: 700; letter-spacing: .5px; color: var(--cyan); margin-bottom: 8px; }
+.dot.dead { background: #f87171; }
+
+/* Phase 9 M4 - re-id tab */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.trail { display: flex; flex-wrap: wrap; gap: 8px; }
+.trail-step { background: #0d1526; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; min-width: 130px; }
+.trail-cam { color: var(--green); font-size: 13px; font-weight: 700; }
+.sighting-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+.sighting { background: #0d1526; border: 1px solid var(--border); border-radius: 10px; padding: 8px; overflow: hidden; }
+.sighting img { width: 100%; height: 90px; object-fit: cover; border-radius: 6px; display: block; }
+.sighting-thumb { width: 100%; height: 90px; border-radius: 6px; background: repeating-linear-gradient(45deg, #1e293b, #1e293b 8px, #0f172a 8px, #0f172a 16px); }
 </style>
 </head>
 <body>
@@ -281,7 +300,10 @@ function Login({ onLogin }) {
         <div className="err">{err}</div>
         <button className="btn btn-primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
         <div className="sub" style={{marginTop:16, textAlign:'center', lineHeight:1.6}}>
-          demo accounts:<br/>admin / admin123 · operator / operator123<br/>analyst / analyst123 · viewer / viewer123
+          demo accounts:<br/>admin / admin123 · operator / operator123<br/>analyst / analyst123 · viewer / viewer123 · police / police123
+        </div>
+        <div className="sub" style={{marginTop:8, textAlign:'center'}}>
+          🔒 read-only <b>public monitor</b>: use the ?public= link provided by the operator
         </div>
       </form>
     </div>
@@ -474,7 +496,7 @@ function EvidenceTab({ token, role }) {
     api(token).get('/api/status').then(d => setCams(d.cameras || [])).catch(() => {});
   }, [token]);
 
-  const canDownload = role === 'operator' || role === 'analyst' || role === 'admin';
+  const canDownload = role === 'operator' || role === 'analyst' || role === 'admin' || role === 'police';
   const canExport = role === 'analyst' || role === 'admin';
   const canNote = canExport;
   const canDelete = role === 'admin';
@@ -763,6 +785,92 @@ function StatusTab({ token, role }) {
             </div>
           ))}
           {(data.pipeline?.cameras || []).length === 0 && <div className="muted" style={{fontSize: 13}}>No camera telemetry.</div>}
+        </div>
+      </div>
+      <HealthOps data={data} token={token} role={role} />
+    </div>
+  );
+}
+
+// ---------- Health & ops (Phase 9 M3): DB, backups, metrics series ----------
+function Spark({ name, points, color }) {
+  if (!points || points.length < 2) return <div className="muted" style={{fontSize: 12}}>collecting…</div>;
+  const W = 260, H = 60, pad = 4;
+  const vals = points.map(p => p.v);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const rng = (hi - lo) || 1;
+  const step = W / (points.length - 1);
+  const path = points.map((p, i) => {
+    const x = pad + i * step;
+    const y = H - pad - ((p.v - lo) / rng) * (H - 2 * pad);
+    return (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1);
+  }).join(' ');
+  return (
+    <svg width={W} height={H} style={{background:'rgba(0,0,0,.25)', borderRadius:6}}>
+      <path d={path} fill="none" stroke={color || '#4cc38a'} strokeWidth={1.6} />
+      <text x={pad + 2} y={12} fill="#9aa4b2" fontSize={10}>{name}</text>
+    </svg>
+  );
+}
+
+function HealthOps({ data, token, role }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const snap = data.series || {};
+  const series = snap.series || {};
+  const db = data.db;
+  const backups = data.backups;
+  const isAdmin = role === 'admin';
+  async function backupNow() {
+    setBusy(true); setMsg('');
+    try {
+      const r = await fetch('/api/ops/backups', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'HTTP ' + r.status);
+      setMsg('Backup written: ' + (d.path || 'ok'));
+    } catch (ex) { setMsg('✗ ' + String(ex.message || ex)); }
+    finally { setBusy(false); }
+  }
+  const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : n >= 1e3 ? (n / 1e3).toFixed(1) + ' KB' : n + ' B';
+  return (
+    <div>
+      <div className="stat-col">
+        <h3>Database (Phase 9 M3)</h3>
+        <div style={{display:'flex', gap:10, flexWrap:'wrap'}}>
+          <div className="stat-card" style={{minWidth: 200}}>
+            <div className="k">PostgreSQL</div>
+            <div className="v" style={{fontSize: 18}}>{db ? (db.reachable ? '✓ reachable' : '✗ DOWN') : 'file store'}</div>
+            <div className="s">{db?.db_size_bytes != null ? fmt(db.db_size_bytes) : ''} {db?.error ? '· ' + db.error : ''}</div>
+          </div>
+          <div className="stat-card" style={{minWidth: 200}}>
+            <div className="k">Rows per table</div>
+            <div className="v" style={{fontSize: 16}}>{db ? Object.values(db.table_rows || {}).reduce((a, b) => a + b, 0) : '—'}</div>
+            <div className="s">{Object.keys(db?.table_rows || {}).join(', ') || 'no db'}</div>
+          </div>
+          <div className="stat-card" style={{minWidth: 200}}>
+            <div className="k">Backups</div>
+            <div className="v" style={{fontSize: 18}}>{backups ? backups.count : '—'}</div>
+            <div className="s">{backups?.latest ? 'newest ' + backups.latest.age_sec + 's old' : (backups ? 'none yet' : 'PG mode only')}</div>
+          </div>
+          {isAdmin && backups && (
+            <div className="stat-card" style={{minWidth: 200}}>
+              <div className="k">Backup now</div>
+              <button className="btn" onClick={backupNow} disabled={busy}>{busy ? 'running…' : '⤓ take backup'}</button>
+              {msg && <div className="s" style={{color:'var(--accent)'}}>{msg}</div>}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="stat-col">
+        <h3>Live metrics (last 50 min)</h3>
+        <div style={{display:'flex', gap:14, flexWrap:'wrap'}}>
+          <Spark name="frames" points={series.bhairav_frames} color="#4cc38a" />
+          <Spark name="fps" points={series.bhairav_fps} color="#58a6ff" />
+          <Spark name="alerts" points={series.bhairav_alerts} color="#f0883e" />
+          <Spark name="clients" points={series.bhairav_clients} color="#d2a8ff" />
+        </div>
+        <div className="muted" style={{fontSize: 12, marginTop: 6}}>
+          Prometheus: GET /metrics with an admin bearer token (see deploy/prometheus.yml)
         </div>
       </div>
     </div>
@@ -1242,6 +1350,201 @@ function AssistantTab({ token }) {
 }
 
 // ---------- App shell ----------
+// ---------- ReID tab (person re-identification, Phase 9 M4) ----------
+function ReidTab({ token, role }) {
+  const isAdmin = role === 'admin';
+  const [stats, setStats] = useState(null);
+  const [subjects, setSubjects] = useState([]);
+  const [sightings, setSightings] = useState([]);
+  const [sel, setSel] = useState(null);        // selected subject id
+  const [trail, setTrail] = useState(null);
+  const [err, setErr] = useState('');
+  const [msg, setMsg] = useState('');
+
+  async function load() {
+    try {
+      setStats(await api(token).get('/api/reid/stats'));
+      setSubjects((await api(token).get('/api/reid/subjects')).subjects || []);
+      setSightings((await api(token).get('/api/reid/sightings?limit=30')).sightings || []);
+    } catch (ex) { setErr(String(ex.message || ex)); }
+  }
+  useEffect(() => { load(); }, [token]);
+
+  async function openTrail(sid) {
+    setSel(sid); setTrail(null);
+    try { setTrail(await api(token).get('/api/reid/subjects/' + sid + '/trail')); }
+    catch (ex) { setErr(String(ex.message || ex)); }
+  }
+
+  async function rename(sid, current) {
+    const name = prompt('Name this person:', current.startsWith('auto-') ? '' : current);
+    if (name === null) return;
+    try {
+      const r = await fetch('/api/reid/subjects/' + sid + '/rename', { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ name: name.trim() }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'HTTP ' + r.status);
+      setMsg('Renamed to ' + name.trim()); load();
+    } catch (ex) { setErr(String(ex.message || ex)); }
+  }
+
+  async function remove(sid) {
+    if (!confirm('Remove this re-id subject and its sightings? This is audited.')) return;
+    try {
+      const r = await fetch('/api/reid/subjects/' + sid, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      setSel(null); setTrail(null); setMsg('Subject removed'); load();
+    } catch (ex) { setErr(String(ex.message || ex)); }
+  }
+
+  return (
+    <div className="card">
+      <h2>👤 Person re-identification <span className="muted">· appearance-based, shared across cameras</span></h2>
+      {stats && (
+        <div className="chips">
+          <span className="chip" style={{background:'#052e16', color:'var(--green)'}}>{stats.subjects} subjects</span>
+          <span className="chip" style={{background:'#1e1b4b', color:'#a5b4fc'}}>{stats.sightings} sightings</span>
+          <span className="chip" style={{background:'#1c1917', color:'#d6d3d1'}}>cameras: {(stats.cameras || []).join(', ') || '—'}</span>
+          <span className="chip" style={{background:'#3f1d0d', color:'#fdba74'}}>{stats.unidentified} unidentified</span>
+        </div>
+      )}
+      {err && <div className="err">{err}</div>}
+      {msg && <div style={{color:'var(--green)', fontSize:13, marginBottom:12}}>{msg}</div>}
+      <table className="tbl">
+        <thead><tr><th>Identity</th><th>Cameras seen</th><th>Sightings</th><th>Last seen</th><th></th></tr></thead>
+        <tbody>
+          {subjects.map(s => (
+            <tr key={s.id} style={sel === s.id ? {background:'rgba(168,85,247,0.08)'} : {}}>
+              <td>
+                <b style={{color: s.auto ? '#c4b5fd' : 'var(--green)'}}>{s.name}</b>
+                <div className="muted" style={{fontSize:11}}>{s.id}{s.auto ? ' · auto' : ''}</div>
+              </td>
+              <td>{(s.cameras || []).map(c => <span className="chip" key={c} style={{background:'#052e16', color:'var(--green)', marginRight:4}}>{c}</span>)}</td>
+              <td>{s.sightings}</td>
+              <td className="muted">{s.last_seen ? new Date(s.last_seen * 1000).toLocaleString() : '—'}</td>
+              <td style={{whiteSpace:'nowrap'}}>
+                <button className="btn btn-primary" style={{padding:'4px 10px', width:'auto'}} onClick={() => openTrail(s.id)}>trail</button>
+                {isAdmin && <button className="lock-btn" style={{marginLeft:6}} onClick={() => rename(s.id, s.name)}>✏️ rename</button>}
+                {isAdmin && <button className="del-btn" style={{marginLeft:6}} onClick={() => remove(s.id)}>✕</button>}
+              </td>
+            </tr>
+          ))}
+          {subjects.length === 0 && (
+            <tr><td colSpan={5} className="muted">No re-id subjects yet — person tracks will appear here as cameras run.</td></tr>
+          )}
+        </tbody>
+      </table>
+
+      {trail && trail.trail && (
+        <div style={{marginTop:16}}>
+          <h3 style={{fontSize:14, marginBottom:8}}>Trail — {trail.subject.name}</h3>
+          <div className="trail">
+            {trail.trail.map((t, i) => (
+              <div key={i} className="trail-step">
+                <div className="trail-cam">{t.camera}</div>
+                <div className="muted" style={{fontSize:11}}>{new Date(t.ts * 1000).toLocaleString()}</div>
+                <div className="muted" style={{fontSize:11}}>track #{t.track_id} · score {t.score}</div>
+              </div>
+            ))}
+            {trail.trail.length === 0 && <div className="muted">No sightings recorded.</div>}
+          </div>
+        </div>
+      )}
+
+      <h3 style={{fontSize:14, marginTop:20, marginBottom:8}}>Recent sightings</h3>
+      <div className="sighting-grid">
+        {sightings.map(g => (
+          <div key={g.id} className="sighting">
+            {g.thumb ? <img src={'data:image/jpeg;base64,' + g.thumb} alt="person" /> : <div className="sighting-thumb" />}
+            <div style={{fontSize:12}}><b>{g.subject_id}</b></div>
+            <div className="muted" style={{fontSize:11}}>{g.camera} · {new Date(g.ts * 1000).toLocaleTimeString()}</div>
+          </div>
+        ))}
+        {sightings.length === 0 && <div className="muted">No sightings recorded.</div>}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Phase 9 M5: read-only public monitor (privacy-blurred) ----------
+// No login. The token comes from the URL (?public=<token>) and is only used
+// to open the /api/public/stream socket, which serves head-blurred frames.
+function PublicView() {
+  const token = new URLSearchParams(location.search).get('public') || '';
+  const [cameras, setCameras] = useState([]);
+  const [frames, setFrames] = useState({});
+  const [status, setStatus] = useState('connecting');
+  const [hud, setHud] = useState({ frames: 0, alerts: 0 });
+  const lastHud = useRef({ n: 0, t: 0 });
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/public/info').then(r => r.json()).then(d => {
+      if (alive) setCameras(d.cameras || []);
+    }).catch(() => {});
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    let ws;
+    let retry = 0;
+    let timer = null;
+    function connect() {
+      ws = new WebSocket(`${proto}://${location.host}/api/public/stream?token=${encodeURIComponent(token)}`);
+      setStatus('connecting');
+      ws.onopen = () => { if (alive) { retry = 0; setStatus('live'); } };
+      ws.onmessage = (ev) => {
+        if (!alive) return;
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'ping') return;
+        if (msg.type === 'frame' && msg.jpeg) {
+          setFrames(f => ({ ...f, [msg.camera || 'all']: { jpeg: msg.jpeg, ts: msg.ts } }));
+          const h = lastHud.current;
+          if (performance.now() - h.t > 1000) { h.t = performance.now(); h.n = 1; }
+          else h.n++;
+          setHud({ frames: h.n, alerts: 0 });
+        }
+      };
+      ws.onclose = () => { if (alive) { setStatus('offline'); retry++; timer = setTimeout(connect, Math.min(2000 * retry, 10000)); } };
+      ws.onerror = () => { if (alive) ws.close(); };
+    }
+    connect();
+    return () => { alive = false; if (timer) clearTimeout(timer); try { ws.close(); } catch (_) {} };
+  }, [token]);
+
+  const cols = cameras.length ? cameras : ['all'];
+  return (
+    <div className="public-wrap">
+      <div className="public-head">
+        <div className="brand">🛰 BHAIRAV <span>Public Monitor</span></div>
+        <div className="spacer" />
+        <span className="pill"><span className={'dot ' + (status === 'live' ? 'live' : 'dead')} />{status}</span>
+        <span className="pill" style={{background:'#1c1917', color:'#d6d3d1'}}>privacy-blurred · read-only</span>
+        <a className="btn btn-ghost" style={{textDecoration:'none'}} href="/">Command center</a>
+      </div>
+      <main>
+        <div className="public-grid" style={{gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))'}}>
+          {cols.map(c => {
+            const f = frames[c];
+            return (
+              <div key={c} className="public-card">
+                <div className="public-cam">{c === 'all' ? 'all cameras' : c}</div>
+                {f
+                  ? <img src={'data:image/jpeg;base64,' + f.jpeg} alt={'camera ' + c} />
+                  : <div className="sighting-thumb" style={{height: 210}} />}
+                <div className="muted" style={{fontSize:11, marginTop:6}}>
+                  {f ? 'updated ' + new Date(f.ts * 1000).toLocaleTimeString() : 'waiting for frames…'}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="muted" style={{marginTop:18, fontSize:12, textAlign:'center'}}>
+          This view is privacy-stripped: faces are blurred and no tracking, pose or alert data is shared.
+        </div>
+      </main>
+    </div>
+  );
+}
+
 function App() {
   const [auth, setAuth] = useState(() => {
     try {
@@ -1250,6 +1553,10 @@ function App() {
     } catch (_) { return null; }
   });
   const [tab, setTab] = useState('live');
+
+  if (new URLSearchParams(location.search).get('public')) {
+    return <PublicView />;
+  }
 
   if (!auth || !auth.token) {
     return <Login onLogin={(token, role, username) => {
@@ -1264,9 +1571,11 @@ function App() {
     { id: 'evidence', label: '🗂 Evidence' },
     { id: 'status', label: '📊 Status' },
   ];
+  const readOnlyExtra = auth.role === 'police';
+  if (auth.role === 'analyst' || auth.role === 'admin' || readOnlyExtra) tabs.push({ id: 'search', label: '🔎 Search' });
   if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'assistant', label: '🤖 Assistant' });
-  if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'search', label: '🔎 Search' });
   if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'vehicles', label: '🚗 Vehicles' });
+  if (auth.role === 'analyst' || auth.role === 'admin' || auth.role === 'police') tabs.push({ id: 'reid', label: '👤 Re-ID' });
   if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'audit', label: '🛡 Audit' });
   if (auth.role === 'admin') tabs.push({ id: 'users', label: '👥 Users' });
 
@@ -1292,6 +1601,7 @@ function App() {
         {tab === 'assistant' && <AssistantTab token={auth.token} />}
         {tab === 'search' && <SearchTab token={auth.token} role={auth.role} />}
         {tab === 'vehicles' && <VehiclesTab token={auth.token} role={auth.role} />}
+        {tab === 'reid' && <ReidTab token={auth.token} role={auth.role} />}
         {tab === 'audit' && <AuditTab token={auth.token} />}
         {tab === 'users' && <UsersTab token={auth.token} me={auth.username} />}
       </main>

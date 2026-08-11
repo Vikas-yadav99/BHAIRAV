@@ -83,7 +83,6 @@ def parse_query(query: str, ctx: dict | None = None) -> dict:
     """
     ctx = ctx or {}
     zones = {str(z).lower(): str(z) for z in ctx.get("zones", [])}
-    cameras = {str(c).lower(): str(c) for c in ctx.get("cameras", [])}
     users = {str(u).lower(): str(u) for u in ctx.get("users", [])}
     now = float(ctx.get("now", time.time()))
 

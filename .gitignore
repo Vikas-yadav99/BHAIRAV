@@ -14,3 +14,7 @@ weights/
 models/
 *.pt
 certs/
+
+# Phase 9 M3: local PG backups + prometheus scrape token
+backups/
+deploy/prometheus-token

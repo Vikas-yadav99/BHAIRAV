@@ -63,6 +63,12 @@ investigation assistant.
 - Phase 8: PostgreSQL stores (evidence, audit, users, plates),
   multi-camera pipelines with per-camera WebSocket channels, HA
   replicas behind nginx, and the offline Investigation Assistant.
+- Phase 9: real-footage validation harness (`src/bhairav/eval/`),
+  CI pipeline with lint + PostgreSQL integration + smoke,
+  PostgreSQL backups + Prometheus metrics / health endpoints,
+  appearance-based person re-identification across cameras, and
+  read-only police / public dashboards with a privacy-blurred
+  public live stream.
 
 ## Phase 8 in detail
 
@@ -99,6 +105,69 @@ external LLM): severity and rule synonyms, zone and camera names,
 relative time windows, plate tokens cross-referenced against the ANPR
 read log, and audit intents with actor detection. Every response carries
 the parser plan so results stay explainable to a human operator.
+
+## Phase 9 in detail
+
+### Validation harness (`src/bhairav/eval/`)
+
+`scripts/validate_footage.py <video>` replays real footage through the
+production detector + rules engine and produces a JSON + HTML report:
+frame rate, dropped-frame detection (self-calibrating from the observed
+median gap), track statistics, per-rule alert tallies and confidence
+threshold checks. Rules run with a `None` registry so the harness works
+without a watchlist. Used as a release gate: `scripts/lint.py` /
+CI run the unit tests and a smoke replay.
+
+### CI pipeline (`.github/workflows/ci.yml`)
+
+Lint (ruff, rules pinned in `pyproject.toml`, helper `scripts/lint.py`),
+unit tests, PostgreSQL integration tests against a `postgres:16`
+service container (`BHAIRAV_TEST_DB_URL`), a smoke boot of the server
+(`/health`, `/api/status`, `/metrics`, `/ready`), and a
+`pip install .` / import / version consistency check.
+
+### Backups + ops telemetry
+
+`scripts/backup_db.py` / `scripts/restore_db.py` wrap `pg_dump` /
+`pg_restore` as logical dumps with per-day retention, always
+re-registering the jsonb/bytea adapters the stores rely on.
+`src/bhairav/backend/backups.py` exposes `BackupService` (list /
+latest / prune). `src/bhairav/backend/metrics.py` is a dependency-free
+Prometheus registry; `serve.py` samples it every 5 s (pipeline stats,
+evidence, audit health, DB size/reachability, backup age) and serves it
+at `/metrics` with an optional `BHAIRAV_METRICS_TOKEN`. `/ready` is a
+live readiness probe (evidence + DB). `deploy/` adds prometheus.yml,
+Grafana provisioning with a BHAIRAV dashboard, and compose services for
+prometheus + grafana. The Status tab shows DB, backups and live
+sparklines.
+
+### Person re-identification (`src/bhairav/reid.py`, `backend/pg_reid.py`)
+
+Appearance-based, no ML deps: per-person HSV spatial-pyramid descriptors
+with per-part normalization, adaptive-mean gallery subjects, cosine
+matching with a configurable assignment threshold, and camera trails.
+`ReidService.observe()` runs inside each camera pipeline; sightings and
+subjects are shared so the same person is matched across CAM-01,
+CAM-02, ... The REST API (`/api/reid/*`) and dashboard Re-ID tab show
+subjects, per-camera trails, and recent sightings. File store
+(`ReidStore`) and PostgreSQL twin (`PostgresReidStore`) share the same
+interface; `backend.reid` config tunes threshold / sighting throttle.
+
+### Police + public read-only dashboards
+
+- **`police` role** (`rbac.py`): live stream, alerts, evidence browse +
+  clip download; no export/delete/audit/users, no management actions.
+  The dashboard shows Live / Evidence / Search / Status / Re-ID and
+  hides every write button (delete, rename, export, users, audit).
+- **Public monitor**: set `backend.public_token` (or
+  `BHAIRAV_PUBLIC_TOKEN`) and the server exposes `/api/public/info`
+  plus `/api/public/stream?token=...`. The pipeline publishes a
+  sanitized copy of every frame (downscaled, person heads heavily
+  blurred, no tracks/poses/alerts) to a dedicated `__public__` hub
+  channel - authenticated clients never receive it. The dashboard's
+  `?public=<token>` URL renders a no-login, read-only, blurred
+  monitor. The token is validated with constant-time comparison and
+  the feed is intentionally unauthenticated-and-unaudited.
 
 ## Running and testing
 

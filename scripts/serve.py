@@ -51,6 +51,33 @@ def _jpeg_b64(frame: np.ndarray, scale: float = 0.5) -> str:
     return base64.b64encode(jpg.tobytes()).decode("ascii") if ok else ""
 
 
+def _public_sanitize(frame: np.ndarray, tracks: list, scale: float = 0.35) -> str:
+    """Privacy-stripped JPEG for the Phase 9 M5 public monitor.
+
+    Downscales the frame and heavily blurs every person's head region, so
+    identities are unreadable while activity remains visible. Returns b64
+    (empty string if encoding fails). No tracks/poses/alerts are included -
+    the /api/public/stream endpoint forwards only this payload.
+    """
+    img = cv2.resize(frame, None, fx=scale, fy=scale,
+                     interpolation=cv2.INTER_AREA)
+    short = min(img.shape[1], img.shape[0])
+    k = max(21, (int(0.22 * short) | 1))  # strong odd blur kernel
+    for t in tracks:
+        if getattr(t, "label", "") != "person":
+            continue
+        x1, y1, x2, y2 = (int(v * scale) for v in t.bbox)
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(img.shape[1], x2), min(img.shape[0], y2)
+        if x2 <= x1 or y2 <= y1:
+            continue
+        hy2 = y1 + max(1, int((y2 - y1) * 0.25))  # head zone = top 25%
+        head = img[y1:hy2, x1:x2]
+        img[y1:hy2, x1:x2] = cv2.GaussianBlur(head, (k, k), 0)
+    ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 60])
+    return base64.b64encode(jpg.tobytes()).decode("ascii") if ok else ""
+
+
 class CameraStatsGroup:
     """Aggregates one PipelineStats per camera into the /api/status snapshot.
 
@@ -83,7 +110,8 @@ class CameraStatsGroup:
 
 
 def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,
-               webhook_url, recent_alerts, plates):
+               webhook_url, recent_alerts, plates, reid=None,
+               public_token: str | None = None):
     """One camera pipeline loop on a background thread.
 
     Each camera gets an independent detector + rules engine (track ids from
@@ -141,6 +169,12 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,
             if a.severity.value == "red":
                 webhook_notify(webhook_url, ad)
         # close events that have gone quiet (respects post_sec)
+                # person re-id: fold this frame's person tracks into the shared gallery
+        try:
+            if reid is not None:
+                reid.observe(state.frame, state, cam.id)
+        except Exception as exc:
+            print(f"[{cam.id}] reid error: {exc}", flush=True)
         recorder.finalize_due(state.timestamp)
         # ops telemetry
         stats.bump(frames=1, alerts=len(alerts))
@@ -155,10 +189,15 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,
                             for k in p.keypoints]} for p in state.poses],
             alerts=[a.to_dict() for a in alerts],
             camera=cam.id)
+        # public monitor (Phase 9 M5): sanitized, head-blurred copy,
+        # delivered only to the "__public__" channel (never the main UI)
+        if public_token:
+            hub.publish_public_frame(
+                frame_id=state.frame_id, timestamp=state.timestamp,
+                jpeg_b64=_public_sanitize(state.frame, state.tracks))
         return None
 
     # loop the source until the server shuts down ("live" feel)
-    import time as _time
     delay = 1.0
     while not stop.is_set():
         try:
@@ -213,6 +252,8 @@ def main() -> int:
     port = args.port or cfg.backend.port
     evidence_dir = args.evidence or cfg.evidence.dir
     secret = os.environ.get("BHAIRAV_SECRET", cfg.backend.secret)
+    public_token = (os.environ.get("BHAIRAV_PUBLIC_TOKEN")
+                    or cfg.backend.public_token or "")
 
     # assemble the app
     from bhairav.backend.audit import AuditLog
@@ -308,20 +349,119 @@ def main() -> int:
         plates = PlateRegistry(Path(evidence_dir).parent / "plates.json")
         print("[security] vehicle watchlist: ENABLED (ANPR on synthetic plates)")
 
+    # ---- person re-identification across cameras (Phase 9 M4) --------------
+    from bhairav.reid import ReidService, ReidStore
+    reid_store = ReidStore(Path(evidence_dir).parent / "reid")
+    if db_url:
+        from bhairav.backend.pg_reid import PostgresReidStore
+        reid_store = PostgresReidStore(db_url)
+        print("[reid] gallery: PostgreSQL (reid_subjects / reid_sightings)")
+    else:
+        print("[reid] gallery: files (reid/gallery.json + sightings.jsonl)")
+    reid_svc = ReidService(reid_store,
+                           assign_threshold=cfg.reid.assign_threshold,
+                           sighting_gap_sec=cfg.reid.sighting_gap_sec)
+
     cam_registry = [{"id": c.id, "name": c.name, "source": c.source} for c in cams]
+
+    stop = threading.Event()  # shared by the metrics sampler + pipeline threads
+
+    # ---- Phase 9 M3: metrics + backups + readiness ------------------------
+    from bhairav.backend.metrics import MetricsRegistry
+    metrics = MetricsRegistry()
+    for hname in ("bhairav_frames", "bhairav_fps", "bhairav_alerts",
+                  "bhairav_clients"):
+        metrics.history(hname, maxlen=600)
+
+    backup_mgr = None
+    db_metrics_cache: dict = {"reachable": False}
+
+    def _ready_file_store() -> bool:
+        return Path(evidence_dir).is_dir()
+
+    def _ready_pg_store() -> bool:
+        return bool(db_metrics_cache.get("reachable"))
+
+    ready_check = _ready_file_store
+    if db_url:
+        from bhairav.backend.backups import BackupService, pg_metrics
+        backup_mgr = BackupService(
+            db_url, Path(evidence_dir).parent / "backups", retention=14)
+        ready_check = _ready_pg_store
+        print(f"[ops] backups -> {backup_mgr.out_dir} (retention "
+              f"{backup_mgr.retention})")
+
+    def _db_metrics() -> dict:
+        return dict(db_metrics_cache)
+
+    def _sample_metrics() -> None:
+        """Background sampler: gauges + histories for /metrics and charts."""
+        snap = stats.snapshot()
+        frames = 0
+        alerts_n = 0
+        fps = 0.0
+        for cam in snap.get("cameras", []):
+            metrics.set("bhairav_frames", cam["frames"], {"camera": cam["camera"]})
+            metrics.set("bhairav_fps", cam["fps"], {"camera": cam["camera"]})
+            metrics.set("bhairav_alerts", cam["alerts"], {"camera": cam["camera"]})
+            frames += cam["frames"]
+            alerts_n += cam["alerts"]
+            fps += cam["fps"]
+        metrics.set("bhairav_frames", frames)
+        metrics.set("bhairav_fps", fps)
+        metrics.set("bhairav_alerts", alerts_n)
+        metrics.set("bhairav_clients", hub.client_count)
+        metrics.set("bhairav_uptime_seconds", snap.get("uptime_sec", 0.0))
+        counts = store.counts()
+        for sev, n in (counts.get("by_severity") or {}).items():
+            metrics.set("bhairav_evidence_total", n, {"severity": sev})
+        ok, problems = audit.verify()
+        metrics.set("bhairav_audit_ok", 1.0 if ok else 0.0,
+                    {"problems": len(problems)})
+        if db_url:
+            nonlocal_db = db_metrics_cache
+            try:
+                nonlocal_db.clear()
+                nonlocal_db.update(pg_metrics(db_url))
+            except Exception as exc:  # DB down -> mark unreachable
+                nonlocal_db.clear()
+                nonlocal_db.update({"reachable": False, "error": str(exc)})
+            metrics.set("bhairav_db_size_bytes",
+                        db_metrics_cache.get("db_size_bytes", 0.0))
+        if backup_mgr is not None:
+            latest = backup_mgr.latest()
+            metrics.set("bhairav_backup_age_seconds",
+                        latest["age_sec"] if latest else -1.0)
+            metrics.set("bhairav_backups_total", len(backup_mgr.list()))
+
+    def _sampler_loop() -> None:
+        while not stop.is_set():
+            try:
+                _sample_metrics()
+            except Exception as exc:  # never kill the process over telemetry
+                print(f"[ops] metrics sampler error: {exc}", flush=True)
+            stop.wait(5.0)
+
+    threading.Thread(target=_sampler_loop, daemon=True).start()
+
     app = create_app(store, audit, secret=secret, hub=hub, users=users,
                      stats=stats, webhook_url=webhook_url, face=face,
                      plates=plates, recent_alerts=recent_alerts,
                      cameras=cam_registry,
                      assistant_ctx={"zones": [z.name for z in cfg.zones],
-                                    "rules": list(cfg.rules.keys())})
+                                    "rules": list(cfg.rules.keys())},
+                     metrics=metrics, backup_mgr=backup_mgr,
+                     ready_check=ready_check, db_metrics_provider=_db_metrics,
+                     metrics_token=os.environ.get("BHAIRAV_METRICS_TOKEN"),
+                     reid=reid_svc,
+                     public_token=public_token or None)
 
     # run one pipeline thread per camera
-    stop = threading.Event()
     for cam, st in per_cam:
         t = threading.Thread(target=run_stream,
                              args=(cfg, cam, hub, store, evidence_dir, stop, st,
-                                   webhook_url, recent_alerts, plates),
+                                   webhook_url, recent_alerts, plates,
+                                   reid_svc, public_token),
                              daemon=True)
         t.start()
 
@@ -338,7 +478,11 @@ def main() -> int:
         print(f"  {u['username']:9s} / {pw:<12s} role={u['role']}")
     if webhook_url:
         print(f"Webhook: red alerts -> {webhook_url}")
+    if os.environ.get("BHAIRAV_METRICS_TOKEN"):
+        print("[ops] /metrics scrape token: ENABLED (BHAIRAV_METRICS_TOKEN)")
     print(f"Live stream: {scheme.replace('https', 'wss').replace('http', 'ws')}://{host}:{port}/ws/stream?token=<token>&camera=<CAM-ID>")
+    if public_token:
+        print(f"[public] read-only blurred monitor: {scheme}://{host}:{port}/?public={public_token}")
     print("[security] login rate limit: 10/min per IP; change defaults via config")
     try:
         uvicorn.run(app, host=host, port=port, log_level="warning",

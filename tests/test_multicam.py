@@ -8,7 +8,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import numpy as np
-import pytest
 
 from bhairav.backend.evidence import EvidenceStore, EventRecorder
 from bhairav.backend.server import LiveHub
@@ -152,7 +151,6 @@ def test_config_parses_cameras(tmp_path):
 
 
 def test_status_reports_cameras_and_evidence_filters_by_camera(tmp_path):
-    fastapi = pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
 
     from bhairav.backend.audit import AuditLog

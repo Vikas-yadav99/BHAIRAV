@@ -61,6 +61,10 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "admin": frozenset({PERM_STREAM, PERM_ALERTS, PERM_EVIDENCE_READ,
                         PERM_EVIDENCE_DOWNLOAD, PERM_EVIDENCE_EXPORT,
                         PERM_EVIDENCE_DELETE, PERM_AUDIT, PERM_USERS}),
+    # Phase 9 M5 - police read-only: live feed, alerts, evidence browse +
+    # download; NO export/delete/audit/users and no management actions
+    "police": frozenset({PERM_STREAM, PERM_ALERTS, PERM_EVIDENCE_READ,
+                         PERM_EVIDENCE_DOWNLOAD}),
 }
 
 VALID_ROLES = frozenset(ROLE_PERMISSIONS)

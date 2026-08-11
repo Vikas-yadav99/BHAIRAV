@@ -54,8 +54,17 @@ DEFAULTS: dict = {
         "users_file": "output/users.json",
         "webhook_url": None,  # POST red alerts here (Slack-style); None disables
         "db": None,           # Phase 8: PostgreSQL URL (postgresql://...) or None = file store
+        # Phase 9 M5 - read-only public monitor. Set a token (or
+        # $BHAIRAV_PUBLIC_TOKEN) to expose a privacy-blurred live view at
+        # /?public=<token> with no login. None/empty disables it.
+        "public_token": None,
     },
     "cameras": [],  # Phase 8 M2: multi-camera sources; empty = single --source
+    # Phase 9 M4 - person re-identification across cameras
+    "reid": {
+        "assign_threshold": 0.60,   # cosine: above this a person links to a known subject
+        "sighting_gap_sec": 3.0,    # min seconds between recorded sightings of one track
+    },
     "evidence": {
         "dir": "output/evidence",
         "camera": "CAM-01",
@@ -134,6 +143,7 @@ class BackendConfig:
     users_file: str = "output/users.json"
     webhook_url: str | None = None
     db: str | None = None   # Phase 8: PostgreSQL URL; None = file-based store
+    public_token: str | None = None  # Phase 9 M5: blurred public monitor token
 
     @classmethod
     def from_dict(cls, d: dict) -> "BackendConfig":
@@ -143,7 +153,20 @@ class BackendConfig:
                    max_recent_alerts=int(d.get("max_recent_alerts", 200)),
                    users_file=d.get("users_file", "output/users.json"),
                    webhook_url=d.get("webhook_url") or None,
-                   db=d.get("db") or None)
+                   db=d.get("db") or None,
+                   public_token=d.get("public_token") or None)
+
+
+@dataclass
+class ReidConfig:
+    """Phase 9 M4 - person re-identification tuning."""
+    assign_threshold: float = 0.60
+    sighting_gap_sec: float = 3.0
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ReidConfig":
+        return cls(assign_threshold=float(d.get("assign_threshold", 0.60)),
+                   sighting_gap_sec=float(d.get("sighting_gap_sec", 3.0)))
 
 
 @dataclass
@@ -206,6 +229,7 @@ class AppConfig:
     zones: list[Zone] = field(default_factory=list)
     rules: dict = field(default_factory=dict)
     backend: BackendConfig = field(default_factory=BackendConfig)
+    reid: ReidConfig = field(default_factory=ReidConfig)
     evidence: EvidenceConfig = field(default_factory=EvidenceConfig)
     cameras: list[CameraConfig] = field(default_factory=list)
 
@@ -222,6 +246,7 @@ class AppConfig:
                    zones=zones,
                    rules=dict(d.get("rules", {})),
                    backend=BackendConfig.from_dict(d.get("backend", {})),
+                   reid=ReidConfig.from_dict(d.get("reid", {})),
                    evidence=EvidenceConfig.from_dict(d.get("evidence", {})),
                    cameras=[CameraConfig.from_dict(c) for c in d.get("cameras", [])])
 

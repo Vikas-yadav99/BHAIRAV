@@ -31,6 +31,7 @@ stringified annotations would make it treat `websocket` as a query param.
 """
 
 import asyncio
+import hmac
 import json
 import threading
 import time
@@ -39,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from .audit import AuditLog
-from .evidence import EvidenceRecord, EvidenceStore
+from .evidence import EvidenceStore
 from .hardening import RateLimiter
 from .rbac import (PERM_ALERTS, PERM_AUDIT, PERM_EVIDENCE_DELETE,
                    PERM_EVIDENCE_DOWNLOAD, PERM_EVIDENCE_EXPORT,
@@ -161,6 +162,28 @@ class LiveHub:
     def publish_alert(self, alert: dict) -> None:
         # alerts are global: every client gets them, whatever camera they watch
         self._broadcast({"type": "alert", "alert": alert})
+
+    def publish_public_frame(self, frame_id: int, timestamp: float,
+                             jpeg_b64: str, camera: str = "__public__") -> None:
+        """Phase 9 M5: sanitized frame for the read-only public monitor.
+
+        Delivered ONLY to subscribers of the dedicated "__public__" channel -
+        authenticated clients (including "all cameras") never see it.
+        """
+        if self._loop is None or not self._channels.get(camera):
+            return
+        msg = {"type": "frame", "camera": camera, "frame_id": frame_id,
+               "ts": timestamp, "jpeg": jpeg_b64, "tracks": [], "poses": [],
+               "alerts": []}
+        asyncio.run_coroutine_threadsafe(self._fanout_channel(msg, camera),
+                                         self._loop)
+
+    async def _fanout_channel(self, msg: dict, channel: str) -> None:
+        for q in self._channels.get(channel, set()):
+            try:
+                q.put_nowait(msg)
+            except asyncio.QueueFull:
+                pass
 
     def _broadcast(self, msg: dict) -> None:
         if self._loop is None or (not self._subscribers and not self._channels):
@@ -297,9 +320,16 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
                webhook_url: str | None = None,
                login_limiter: RateLimiter | None = None,
                face: dict | None = None,
-               plates: "PlateRegistry | None" = None,
+               plates: "PlateRegistry | None" = None,  # noqa: F821
                cameras: list[dict] | None = None,
-               assistant_ctx: dict | None = None) -> Any:
+               assistant_ctx: dict | None = None,
+               metrics: "MetricsRegistry | None" = None,  # noqa: F821
+               backup_mgr=None,
+               ready_check=None,
+               db_metrics_provider=None,
+               metrics_token: str | None = None,
+               reid=None,
+               public_token: str | None = None) -> Any:
     """Build the FastAPI application. Imports fastapi lazily."""
     try:
         from fastapi import (Body, Depends, FastAPI, HTTPException, Query,
@@ -394,6 +424,17 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         return {"status": "ok", "service": "bhairav-phase8",
                 "time": round(time.time(), 3), "clients": hub.client_count}
 
+    @app.get("/ready")
+    def ready():
+        """Readiness probe for orchestrators / nginx / compose healthchecks.
+
+        Public on purpose: load balancers must be able to check a replica
+        without credentials. `ready_check` is provided by serve.py (DB ping
+        in PostgreSQL mode, evidence-dir check otherwise).
+        """
+        ok = bool(ready_check() if ready_check else True)
+        return {"ready": ok, "time": round(time.time(), 3)}
+
     # ---- ops status -------------------------------------------------------
     @app.get("/api/status")
     def api_status(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
@@ -410,6 +451,12 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
             "users": users.count(),
             "webhook": bool(webhook_url),
             "cameras": cameras or [],
+            "db": db_metrics_provider() if db_metrics_provider else None,
+            "backups": ({"dir": str(backup_mgr.out_dir),
+                         "count": len(backup_mgr.list()),
+                         "latest": backup_mgr.latest()}
+                        if backup_mgr is not None else None),
+            "series": metrics.snapshot() if metrics is not None else None,
         }
 
     # ---- users (admin) ----------------------------------------------------
@@ -711,6 +758,151 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         audit.append(claims["sub"], "index_evidence_faces",
                      f"indexed={stats['indexed_events']}")
         return stats
+
+    # ---- person re-identification across cameras (Phase 9 M4) --------------
+    def _reid_or_503():
+        if reid is None:
+            raise HTTPException(status_code=503,
+                                detail="re-id is not enabled in this server")
+        return reid
+
+    @app.get("/api/reid/stats")
+    def reid_stats(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        return _reid_or_503().store.stats()
+
+    @app.get("/api/reid/subjects")
+    def reid_subjects(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        return {"subjects": _reid_or_503().store.list()}
+
+    @app.post("/api/reid/subjects/{sid}/rename")
+    def reid_subject_rename(sid: str, payload: dict = Body(...),
+                            claims: dict = Depends(require(PERM_USERS))):
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="name is required")
+        if not _reid_or_503().store.rename(sid, name):
+            raise HTTPException(status_code=404, detail="subject not found")
+        audit.append(claims["sub"], "rename_reid_subject", f"{sid} -> {name}")
+        return {"renamed": sid}
+
+    @app.delete("/api/reid/subjects/{sid}")
+    def reid_subject_delete(sid: str,
+                            claims: dict = Depends(require(PERM_USERS))):
+        if not _reid_or_503().store.remove(sid):
+            raise HTTPException(status_code=404, detail="subject not found")
+        audit.append(claims["sub"], "remove_reid_subject", sid)
+        return {"removed": sid}
+
+    @app.get("/api/reid/subjects/{sid}/trail")
+    def reid_subject_trail(sid: str,
+                           claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        svc = _reid_or_503()
+        if svc.store.get(sid) is None:
+            raise HTTPException(status_code=404, detail="subject not found")
+        return {"subject": svc.store.get(sid), "trail": svc.store.trail(sid)}
+
+    @app.get("/api/reid/sightings")
+    def reid_sightings(subject_id: str | None = None, camera: str | None = None,
+                       limit: int = Query(100, ge=1, le=500),
+                       claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        return {"sightings": _reid_or_503().store.sightings(
+            subject_id=subject_id, camera=camera, limit=limit)}
+
+    # ---- Phase 9 M5: read-only public monitor (privacy-blurred) ----------
+    # The pipeline publishes sanitized frames (heads blurred, downscaled,
+    # no tracks/poses/alerts) to hub channel "__public__"; this endpoint
+    # only ever forwards those. No auth or audit: the bearer of the public
+    # token may share the monitor URL freely.
+    @app.get("/api/public/info")
+    def public_info():
+        cam_list = [{"id": c.get("id", c.get("name", ""))}
+                    for c in (cameras or [])] or [{"id": ""}]
+        return {"streaming": True, "blurred": True,
+                "cameras": [c["id"] for c in cam_list]}
+
+    @app.websocket("/api/public/stream")
+    async def public_stream(websocket: WebSocket):
+        token = (websocket.query_params.get("token") or "").strip()
+        if not public_token or not token or                 not hmac.compare_digest(public_token.encode(), token.encode()):
+            await websocket.close(code=4401, reason="unauthorized")
+            return
+        await websocket.accept()
+        q = await hub.subscribe("__public__")
+        try:
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=5.0)
+                    # forward ONLY the sanitized jpeg + minimal metadata
+                    await websocket.send_text(json.dumps({
+                        "type": "frame", "camera": msg.get("camera", ""),
+                        "frame_id": msg.get("frame_id"),
+                        "ts": msg.get("ts"), "jpeg": msg.get("jpeg", "")}))
+                except asyncio.TimeoutError:
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+        except WebSocketDisconnect:
+            pass
+        finally:
+            hub.unsubscribe(q, "__public__")
+
+    # ---- ops: Prometheus metrics + backups (Phase 9 M3) -------------------
+    @app.get("/metrics")
+    def metrics_endpoint(creds: HTTPAuthorizationCredentials | None = Depends(bearer)):
+        """Prometheus text exposition.
+
+        Accepts either a valid admin bearer token or the shared scrape token
+        configured via BHAIRAV_METRICS_TOKEN (constant-time compare) so a
+        scraper needs no interactive login; see deploy/prometheus.yml.
+        """
+        if metrics is None:
+            raise HTTPException(status_code=503,
+                                detail="metrics not enabled")
+        raw = creds.credentials if creds is not None else None
+        token = getattr(raw, "get_secret_value", lambda: raw)() if raw else None
+        authorized = False
+        if token:
+            if metrics_token and hmac.compare_digest(token, metrics_token):
+                authorized = True
+            else:
+                claims = validate_token(secret, token) if token else None
+                authorized = bool(claims and PERM_USERS in
+                                  ROLE_PERMISSIONS.get(claims.get("role", ""),
+                                                       frozenset()))
+        if not authorized:
+            raise HTTPException(status_code=401,
+                                detail="Invalid or expired token")
+        return Response(content=metrics.render(),
+                        media_type="text/plain; version=0.0.4")
+
+    def _backups_or_503():
+        if backup_mgr is None:
+            raise HTTPException(status_code=503,
+                                detail="backups unavailable (PostgreSQL mode only)")
+        return backup_mgr
+
+    @app.get("/api/ops/backups")
+    def ops_backups_list(claims: dict = Depends(require(PERM_USERS))):
+        return {"backups": _backups_or_503().list()}
+
+    @app.post("/api/ops/backups")
+    def ops_backups_create(claims: dict = Depends(require(PERM_USERS))):
+        try:
+            result = _backups_or_503().create()
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"backup failed: {exc}")
+        audit.append(claims["sub"], "create_backup", result["path"])
+        return result
+
+    @app.get("/api/ops/backups/{name}")
+    def ops_backups_download(name: str,
+                             claims: dict = Depends(require(PERM_USERS))):
+        data = _backups_or_503().read(name)
+        if data is None:
+            raise HTTPException(status_code=404, detail="backup not found")
+        audit.append(claims["sub"], "download_backup", name)
+        return Response(content=data,
+                        media_type="application/gzip",
+                        headers={"Content-Disposition":
+                                 f'attachment; filename="{name}"'})
 
     # ---- alert feed -------------------------------------------------------
     @app.get("/api/alerts/recent")

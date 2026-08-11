@@ -75,3 +75,37 @@ Dashboard: `https://<host>/dashboard/`. API: `https://<host>/health`.
 - The ML models (YOLO/SFace/YuNet/pose/EasyOCR) are fetched at first run; make
   sure the container can reach the internet once, or bake `models/` into the
   image (they are gitignored - copy them into the build context if needed).
+
+## Phase 9 M3 - backups, metrics and health dashboards
+
+### PostgreSQL backups (scheduled + on-demand)
+
+The compose file runs a `backup` sidecar that dumps the whole public schema
+to `backups/` every 6h with retention 14 and a post-write verify. The dump is
+a pure-Python logical backup (gzip'd JSON, no `pg_dump` binary) that
+round-trips BYTEA and JSONB columns; restore anywhere with:
+
+```bash
+python scripts/backup_db.py --url "$DATABASE_URL" --dir backups --retention 14 --verify
+python scripts/backup_db.py --list
+python scripts/restore_db.py --url "$TARGET_URL" --file backups/bhairav_....json.gz --wipe
+```
+
+Manually (and from the dashboard Status tab, admin only):
+`POST /api/ops/backups`, list `GET /api/ops/backups`, download
+`GET /api/ops/backups/<name>` (audited; filename-validated).
+
+### Metrics + health
+
+- `GET /ready` (public) - readiness for load balancers / compose healthchecks
+  (DB ping in PostgreSQL mode).
+- `GET /metrics` - Prometheus text exposition. Accepts an admin bearer token
+  or the shared scrape token set via `BHAIRAV_METRICS_TOKEN` (same value in
+  `deploy/prometheus-token`, no trailing newline:
+  `printf '%s' "$BHAIRAV_METRICS_TOKEN" > deploy/prometheus-token`).
+- Dashboard Status tab shows DB size/rows, backup age, a "Backup now" button
+  (admin) and live sparklines of frames / fps / alerts / clients.
+- `prometheus` + `grafana` compose services: `docker compose -f
+  deploy/docker-compose.yml up -d` brings up Prometheus scraping `/metrics`
+  and a pre-provisioned "BHAIRAV Ops" dashboard at http://<host>:3000
+  (default login admin/admin - change `GRAFANA_ADMIN_PASSWORD` in .env).

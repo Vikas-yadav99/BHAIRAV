@@ -16,14 +16,19 @@ Phase 8 adds a drop-in PostgreSQL backend for every persistent store:
 from __future__ import annotations
 
 from .audit import AuditLog
+from .backups import BackupService, dump as dump_backup, pg_metrics
 from .evidence import EvidenceStore, EventRecorder, PreEventBuffer
 from .hardening import RateLimiter, is_loopback, load_evidence_key
+from .metrics import History, MetricsRegistry
 from .privacy import Encryptor, FaceBlur
 from .rbac import TOKEN_TTL_SEC, Permissions, Role, authorize, issue_token, validate_token
 from .users import UserError, UserStore
 
 __all__ = [
     "AuditLog",
+    "BackupService",
+    "History",
+    "MetricsRegistry",
     "RateLimiter",
     "Encryptor",
     "EvidenceStore",
@@ -35,8 +40,10 @@ __all__ = [
     "TOKEN_TTL_SEC",
     "UserError",
     "UserStore",
+    "dump_backup",
     "is_loopback",
     "load_evidence_key",
+    "pg_metrics",
     "authorize",
     "issue_token",
     "validate_token",

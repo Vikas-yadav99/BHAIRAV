@@ -210,7 +210,7 @@ def test_status_endpoint(app_ctx):
     assert body["evidence"]["total"] == 1
     assert body["evidence"]["by_rule"]["fight"] == 1
     assert body["audit"]["ok"] is True
-    assert body["users"] == 4
+    assert body["users"] == 5
     assert "pipeline" in body and "clients" in body
 
 

@@ -128,7 +128,7 @@ def test_save_get_roundtrip():
 @needs_db
 def test_save_is_idempotent_and_preserves_workflow():
     store = _fresh_store()
-    rec = store.save(_make_event("abcd12345678"))
+    store.save(_make_event("abcd12345678"))
     store.update_status("abcd12345678", "acknowledged", "alice")
     store.save(_make_event("abcd12345678"))   # re-save must not reset status
     assert store.get("abcd12345678").status == "acknowledged"
@@ -176,7 +176,7 @@ def test_search_filters_and_counts():
 @needs_db
 def test_workflow_status_and_notes():
     store = _fresh_store()
-    rec = store.save(_make_event("abcd12345678"))
+    store.save(_make_event("abcd12345678"))
     r = store.update_status("abcd12345678", "acknowledged", "alice", now=50.0)
     assert r.status == "acknowledged"
     r = store.add_note("abcd12345678", "check the plate", "bob", now=60.0)
@@ -216,7 +216,8 @@ def test_export_zip():
     store = _fresh_store()
     rec = store.save(_make_event())
     zf = store.export_zip([rec])
-    import zipfile, io
+    import io
+    import zipfile
     with zipfile.ZipFile(io.BytesIO(zf)) as z:
         names = z.namelist()
         assert any(n.endswith("snapshot.jpg") for n in names)
