@@ -51,9 +51,9 @@ Dashboard: `https://<host>/dashboard/`. API: `https://<host>/health`.
 
 ## Honest notes
 
-- **Evidence storage defaults to PostgreSQL** (the bundled `db` service).
-  Users, audit and the plate watchlist remain file-based (JSON/JSONL on the
-  volume) for now; moving those to Postgres is the next step.
+- **Evidence storage and the audit log default to PostgreSQL** (the bundled
+  `db` service). Users and the plate watchlist remain file-based
+  (JSON/JSONL on the volume) for now.
 - **Single-replica.** For HA you would add a second app instance behind the
   same nginx (uvicorn workers per instance), move evidence to shared/object
   storage, and centralise the audit chain. Not included.

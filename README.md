@@ -445,8 +445,9 @@ export BHAIRAV_DB_URL=postgresql://bhairav:pass@localhost:5432/bhairav
   stay on the file store.
 - Integration tests are gated behind `BHAIRAV_TEST_DB_URL` (see
   `tests/test_evidence_pg.py`); the pure-logic unit tests always run.
-- Audit log, user store and the plate watchlist are still file-based; moving
-  them to Postgres is the next milestone, then multi-camera and HA.
+- The audit log now lives in Postgres too (same hash chain, `audit_log` table);
+  only the user store and the plate watchlist remain file-based for now. Next:
+  multi-camera and HA.
 
 ## Next: Phase 8 (scale & the wider roadmap)
 

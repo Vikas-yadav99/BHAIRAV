@@ -196,11 +196,12 @@ def main() -> int:
             "(base64 32-byte key, e.g. from: python -c \"import os,base64;"
             "print(base64.b64encode(os.urandom(32)).decode())\") or pass --evidence-key.")
 
-    audit = AuditLog(Path(evidence_dir) / "audit.jsonl")
     db_url = args.db_url or os.environ.get("BHAIRAV_DB_URL") or cfg.backend.db
     if db_url:
+        from bhairav.backend.pg_audit import PostgresAuditLog
         from bhairav.backend.pg_store import PostgresEvidenceStore
         try:
+            audit = PostgresAuditLog(db_url)
             store = PostgresEvidenceStore(
                 db_url, camera=cfg.evidence.camera, fps=detector.fps,
                 blur_faces=cfg.evidence.blur_faces,
@@ -208,10 +209,11 @@ def main() -> int:
                 max_events=cfg.evidence.max_events, root=evidence_dir)
         except RuntimeError as exc:
             raise SystemExit(
-                "REFUSING TO START: PostgreSQL evidence store unavailable.\n"
+                "REFUSING TO START: PostgreSQL backend unavailable.\n"
                 f"  {exc}")
-        print(f"[db] evidence store: PostgreSQL ({db_url.split('@')[-1]})")
+        print(f"[db] evidence + audit: PostgreSQL ({db_url.split('@')[-1]})")
     else:
+        audit = AuditLog(Path(evidence_dir) / "audit.jsonl")
         store = EvidenceStore(evidence_dir, camera=cfg.evidence.camera,
                               fps=detector.fps,
                               blur_faces=cfg.evidence.blur_faces,

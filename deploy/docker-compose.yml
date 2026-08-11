@@ -7,11 +7,11 @@
 #   BHAIRAV_SECRET=<long random>            # admin token signing secret
 #   BHAIRAV_EVIDENCE_KEY=<base64 32 bytes>  # AES-256 key for evidence at rest
 #
-# NOTE on storage: users / audit / plates are still file-based on the
-# bhairav-data volume. The evidence store can use the `db` service
-# (PostgreSQL) instead of the file store - compose sets DATABASE_URL, which
-# serve.py picks up. To stay on the file store, remove DATABASE_URL below
-# and the `db` service.
+# NOTE on storage: users / plates are still file-based on the
+# bhairav-data volume. The evidence store and the audit log use the `db`
+# service (PostgreSQL) - compose sets DATABASE_URL, which serve.py picks
+# up. To stay on the file store, remove DATABASE_URL below and the `db`
+# service.
 services:
   app:
     build:
