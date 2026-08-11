@@ -14,9 +14,13 @@ import time
 from .pg_store import load_driver
 from ..reid import _new_id, cosine
 
-from psycopg.types.json import Jsonb
-
 import numpy as np
+
+
+def _jsonb(value):
+    """Lazy Jsonb wrapper - psycopg is optional unless PG mode is used."""
+    from psycopg.types.json import Jsonb
+    return Jsonb(value)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS reid_subjects (
@@ -87,8 +91,8 @@ class PostgresReidStore:
                 " cameras, auto, description, first_seen, last_seen, created)"
                 " VALUES (%s, %s, %s, 1, %s, '[]', %s, %s, NULL, NULL, %s)",
                 [sid, name or f"auto-{sid}",
-                 Jsonb([round(float(v), 6) for v in embedding]), notes,
-                 not name, Jsonb(description or None), now])
+                 _jsonb([round(float(v), 6) for v in embedding]), notes,
+                 not name, _jsonb(description or None), now])
         return self.get(sid)
 
     def get(self, sid: str) -> dict | None:
@@ -161,7 +165,7 @@ class PostgresReidStore:
             cur.execute(
                 "UPDATE reid_subjects SET embedding = %s, count = %s,"
                 " cameras = %s, last_seen = %s WHERE id = %s",
-                [Jsonb(new_emb), n + 1, Jsonb(cameras), time.time(), sid])
+                [_jsonb(new_emb), n + 1, _jsonb(cameras), time.time(), sid])
         return self.get(sid)
 
     def record_sighting(self, sid: str, camera: str, track_id: int,
@@ -176,7 +180,7 @@ class PostgresReidStore:
                 " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 [gid, sid, camera, int(track_id), round(float(ts), 3),
                  int(frame_id), round(float(score), 3),
-                 Jsonb([round(float(v), 1) for v in bbox]), thumb_b64])
+                 _jsonb([round(float(v), 1) for v in bbox]), thumb_b64])
             cur.execute(
                 "UPDATE reid_subjects SET last_seen = %s,"
                 " first_seen = COALESCE(first_seen, %s),"
@@ -184,7 +188,7 @@ class PostgresReidStore:
                 "                ELSE cameras || %s END"
                 " WHERE id = %s",
                 [round(float(ts), 3), round(float(ts), 3),
-                 Jsonb([camera]), Jsonb([camera]), sid])
+                 _jsonb([camera]), _jsonb([camera]), sid])
             self._trim(sid)
         return {"id": gid, "subject_id": sid, "camera": camera,
                 "track_id": int(track_id), "ts": round(float(ts), 3),
