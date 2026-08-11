@@ -323,7 +323,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         if cl and cl.isdigit() and int(cl) > MAX_JSON_BODY_BYTES:
             raise HTTPException(status_code=413, detail="request body too large")
 
-    app = FastAPI(title="BHAIRAV - Evidence & Live API", version="7.0.0")
+    app = FastAPI(title="BHAIRAV - Evidence & Live API", version="8.0.0")
     app.add_middleware(_BodyLimitMiddleware, max_bytes=MAX_JSON_BODY_BYTES)
 
     # Phase 4: serve the React dashboard (dashboard/index.html) from the repo.
@@ -391,7 +391,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "service": "bhairav-phase7",
+        return {"status": "ok", "service": "bhairav-phase8",
                 "time": round(time.time(), 3), "clients": hub.client_count}
 
     # ---- ops status -------------------------------------------------------
@@ -400,7 +400,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         counts = store.counts()
         audit_ok, problems = audit.verify()
         return {
-            "service": "bhairav", "version": "7.0.0",
+            "service": "bhairav", "version": "8.0.0",
             "time": round(time.time(), 3),
             "pipeline": stats.snapshot(),
             "clients": hub.client_count,

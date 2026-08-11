@@ -83,6 +83,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 @dataclass
 class ModelConfig:
+    """YOLO/ultralytics model settings: weights, confidence, input size, COCO class filter and ByteTrack config."""
     name: str = "yolov8n.pt"
     conf: float = 0.35
     imgsz: int = 640
@@ -99,6 +100,7 @@ class ModelConfig:
 
 @dataclass
 class SyntheticConfig:
+    """Scripted demo scene: fps, RNG seed, loop duration and frame size. The scene guarantees every Phase 1+2 alert type fires within `duration_sec`."""
     fps: int = 15
     seed: int = 7
     duration_sec: float = 24.0
@@ -114,6 +116,7 @@ class SyntheticConfig:
 
 @dataclass
 class AlertConfig:
+    """Global alert cooldown: the same (rule, zone, track, severity) key cannot refire within `cooldown_sec`."""
     cooldown_sec: float = 10.0
 
     @classmethod
@@ -123,6 +126,7 @@ class AlertConfig:
 
 @dataclass
 class BackendConfig:
+    """Server settings: bind host/port, token secret, bounded recent-alert feed, user store path, optional webhook, and the Phase 8 PostgreSQL URL (None = file-based stores)."""
     host: str = "127.0.0.1"
     port: int = 8000
     secret: str = "dev-secret-change-me"
@@ -144,6 +148,7 @@ class BackendConfig:
 
 @dataclass
 class EvidenceConfig:
+    """Evidence recording: directory, camera tag, fps, pre/during/post windows, face blur + AES-256-GCM encryption at rest, retention policy and the max-events pruning cap."""
     dir: str = "output/evidence"
     camera: str = "CAM-01"
     fps: int = 15
@@ -193,6 +198,7 @@ class CameraConfig:
 
 @dataclass
 class AppConfig:
+    """Top-level configuration tree, built by load_config() from config.yaml deep-merged over DEFAULTS."""
     detector: str = "blob"  # blob | yolo | auto
     model: ModelConfig = field(default_factory=ModelConfig)
     synthetic: SyntheticConfig = field(default_factory=SyntheticConfig)

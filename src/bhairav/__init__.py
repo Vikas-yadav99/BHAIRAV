@@ -11,5 +11,8 @@ Phase 6: Hardening, face search & ANPR - TLS, rate limits, person search by
          photo, stolen-vehicle watchlist.
 Phase 7: Camera sources & deployment - RTSP/RTMP/webcam with reconnect,
          EasyOCR plate backend, Docker + nginx + TLS.
+Phase 8: Scale-out - PostgreSQL evidence/audit/users/plate stores, multi-camera
+         pipelines with per-camera WS channels, HA replicas behind nginx, and
+         the offline natural-language Investigation Assistant.
 """
-__version__ = "0.7.0"
+__version__ = "0.8.0"

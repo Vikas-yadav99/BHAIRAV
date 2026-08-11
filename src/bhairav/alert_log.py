@@ -1,4 +1,13 @@
-"""JSON-lines alert persistence + summary helpers."""
+"""JSON-lines alert persistence + summary helpers.
+
+Persists every fired alert as one JSON object per line, so the file stays
+append-only and trivially greppable. The bounded in-memory feed (recent())
+is what the dashboard shows in the live wall; summary() powers the
+per-camera /api/status cards. Phase 8 notes: alerts are also mirrored into
+the evidence store via EventRecorder, and in PostgreSQL mode the audit log
+replaces the JSONL audit file, but this alert log remains file-based by
+design (it is a rolling human-readable feed, not a source of truth).
+"""
 from __future__ import annotations
 
 import json
