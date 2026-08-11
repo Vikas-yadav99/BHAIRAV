@@ -204,6 +204,7 @@ table.tbl td.muted { color: var(--muted); }
 .sighting { background: #0d1526; border: 1px solid var(--border); border-radius: 10px; padding: 8px; overflow: hidden; }
 .sighting img { width: 100%; height: 90px; object-fit: cover; border-radius: 6px; display: block; }
 .sighting-thumb { width: 100%; height: 90px; border-radius: 6px; background: repeating-linear-gradient(45deg, #1e293b, #1e293b 8px, #0f172a 8px, #0f172a 16px); }
+.desc-search { display: flex; gap: 8px; margin: 14px 0 2px; }
 </style>
 </head>
 <body>
@@ -617,6 +618,31 @@ function EvidenceTab({ token, role }) {
         {canExport && <button className="btn btn-ghost" onClick={exportZip}>📦 export zip</button>}
         {canDelete && <button className="btn btn-ghost" onClick={expire}>🧹 run retention</button>}
       </div>
+      <form className="desc-search" onSubmit={search}>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search by description — e.g. red shirt, tall"
+               style={{flex:1, padding:'8px 12px', borderRadius:8, border:'1px solid #333', background:'#0a0a0a', color:'var(--fg)'}} />
+        <button className="btn btn-primary" style={{width:'auto'}} type="submit">search</button>
+      </form>
+      {hits && (
+        <div style={{marginTop:10, marginBottom:4, fontSize:13}}>
+          <span className="muted">query: <b style={{color:'var(--fg)'}}>{hits.query}</b></span>
+          {hits.colors.length > 0 && <span className="chip" style={{background:'#1e1b4b', color:'#a5b4fc', marginLeft:8}}>colors: {hits.colors.join(', ')}</span>}
+          {hits.height && <span className="chip" style={{background:'#052e16', color:'var(--green)', marginLeft:8}}>height: {hits.height}</span>}
+          <span className="chip" style={{background:'#1c1917', color:'#d6d3d1', marginLeft:8}}>{hits.results.length} match(es)</span>
+          {hits.results.length === 0 && <span className="muted" style={{marginLeft:8}}>no subjects match this description</span>}
+        </div>
+      )}
+      {hits && hits.results.length > 0 && (
+        <div className="sighting-grid" style={{marginTop:6}}>
+          {hits.results.map(h => (
+            <div key={h.subject.id} className="sighting" style={{cursor:'pointer'}} onClick={() => openTrail(h.subject.id)}>
+              <div style={{fontSize:12}}><b style={{color: h.subject.auto ? '#c4b5fd' : 'var(--green)'}}>{h.subject.name}</b></div>
+              <div className="muted" style={{fontSize:11}}>{h.subject.id} · score {h.score}</div>
+              <div style={{fontSize:11, marginTop:2}}>{descrText(h.subject.description)}</div>
+            </div>
+          ))}
+        </div>
+      )}
       {err && <div className="err">{err}</div>}
       {rows === null ? <div className="loading">Loading evidence…</div> :
         rows.length === 0 ? <div className="feed-empty">No evidence matches.</div> :
@@ -890,6 +916,14 @@ function UsersTab({ token, me }) {
     catch (_) { setErr('Could not load users.'); }
   }
   useEffect(() => { load(); }, [token]);
+
+  async function search(ev) {
+    ev.preventDefault();
+    const query = q.trim();
+    if (!query) { setHits(null); return; }
+    try { setHits(await api(token).get('/api/reid/search?q=' + encodeURIComponent(query))); }
+    catch (ex) { setErr(String(ex.message || ex)); }
+  }
   async function create(e) {
     e.preventDefault();
     setErr(''); setMsg('');
@@ -1155,6 +1189,8 @@ function VehiclesTab({ token, role }) {
   const [reason, setReason] = useState('');
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
+  const [q, setQ] = useState('');
+  const [hits, setHits] = useState(null);
 
   async function load() {
     try {
@@ -1351,6 +1387,13 @@ function AssistantTab({ token }) {
 
 // ---------- App shell ----------
 // ---------- ReID tab (person re-identification, Phase 9 M4) ----------
+function descrText(d) {
+  if (!d) return '';
+  const cols = (d.colors || []).map(c => c.name).join(', ');
+  const h = d.height_class || '';
+  return (cols ? cols + (h ? ' · ' : '') : '') + h || 'no description';
+}
+
 function ReidTab({ token, role }) {
   const isAdmin = role === 'admin';
   const [stats, setStats] = useState(null);
@@ -1412,7 +1455,7 @@ function ReidTab({ token, role }) {
       {err && <div className="err">{err}</div>}
       {msg && <div style={{color:'var(--green)', fontSize:13, marginBottom:12}}>{msg}</div>}
       <table className="tbl">
-        <thead><tr><th>Identity</th><th>Cameras seen</th><th>Sightings</th><th>Last seen</th><th></th></tr></thead>
+        <thead><tr><th>Identity</th><th>Description</th><th>Cameras seen</th><th>Sightings</th><th>Last seen</th><th></th></tr></thead>
         <tbody>
           {subjects.map(s => (
             <tr key={s.id} style={sel === s.id ? {background:'rgba(168,85,247,0.08)'} : {}}>
@@ -1420,6 +1463,7 @@ function ReidTab({ token, role }) {
                 <b style={{color: s.auto ? '#c4b5fd' : 'var(--green)'}}>{s.name}</b>
                 <div className="muted" style={{fontSize:11}}>{s.id}{s.auto ? ' · auto' : ''}</div>
               </td>
+              <td className="muted" style={{fontSize:11}}>{descrText(s.description)}</td>
               <td>{(s.cameras || []).map(c => <span className="chip" key={c} style={{background:'#052e16', color:'var(--green)', marginRight:4}}>{c}</span>)}</td>
               <td>{s.sightings}</td>
               <td className="muted">{s.last_seen ? new Date(s.last_seen * 1000).toLocaleString() : '—'}</td>
@@ -1431,7 +1475,7 @@ function ReidTab({ token, role }) {
             </tr>
           ))}
           {subjects.length === 0 && (
-            <tr><td colSpan={5} className="muted">No re-id subjects yet — person tracks will appear here as cameras run.</td></tr>
+            <tr><td colSpan={6} className="muted">No re-id subjects yet — person tracks will appear here as cameras run.</td></tr>
           )}
         </tbody>
       </table>

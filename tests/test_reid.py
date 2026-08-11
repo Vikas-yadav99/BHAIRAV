@@ -234,3 +234,85 @@ def test_reid_api_503_without_service(tmp_path):
     r = c.post("/auth/login", json={"username": "admin", "password": "admin123"})
     h = {"Authorization": "Bearer " + r.json()["token"]}
     assert c.get("/api/reid/stats", headers=h).status_code == 503
+
+
+# ---- Phase 9 M5.5: physical-description search ----------------------------
+def _make_subject(desc, name="auto"):
+    import time
+    return {"id": "P-12345678", "name": name, "auto": not name,
+            "description": desc, "last_seen": time.time()}
+
+
+def test_parse_query_colors_and_height():
+    from bhairav.describe import parse_query
+    assert parse_query("red shirt, tall") == (["red"], "tall")
+    assert parse_query("navy jacket medium") == (["blue"], "medium")
+    assert parse_query("grey hoodie short person") == (["gray"], "short")
+    assert parse_query("") == ([], None)
+    assert parse_query("random words") == ([], None)
+
+
+def test_match_color_present_and_absent():
+    from bhairav.describe import match
+    desc = {"colors": [{"name": "red", "fraction": 0.6},
+                       {"name": "black", "fraction": 0.3}],
+            "height_class": "tall"}
+    assert match(desc, ["red"]) > match(desc, ["black"])
+    assert match(desc, ["green"]) == 0.0  # absent color -> no match
+    assert match(desc, None, "tall") > 0.0
+    assert match(desc, None, "short") < 1.0  # height mismatch only
+    assert match(None, ["red"]) == 0.0
+
+
+def test_search_subjects_ranks_by_color():
+    from bhairav.describe import search_subjects
+    red = _make_subject({"colors": [{"name": "red", "fraction": 0.8}],
+                         "height_class": "tall"})
+    red["id"] = "P-red000001"
+    blue = _make_subject({"colors": [{"name": "blue", "fraction": 0.9}],
+                          "height_class": "medium"})
+    blue["id"] = "P-blue00002"
+    hits = search_subjects([blue, red], ["red"])
+    # blue has no red in its palette -> excluded entirely, red ranks first
+    assert [h["subject"]["id"] for h in hits] == [red["id"]]
+    assert hits[0]["score"] > 0.5
+
+
+def test_describe_person_detects_torso_color():
+    from bhairav.describe import describe_person
+    img = np.zeros((200, 60, 3), np.uint8)
+    img[50:160, :, :] = (40, 40, 240)  # BGR red torso
+    d = describe_person(img, frame_h=480)
+    assert d is not None
+    names = [c["name"] for c in d["colors"]]
+    assert "red" in names
+    assert d["height_class"] == "medium"  # 200/480
+
+
+def test_reid_api_search_by_description(tmp_path):
+    client, rstore = _build_app(tmp_path)
+    r = client.post("/auth/login", json={"username": "analyst",
+                                        "password": "analyst123"})
+    h = {"Authorization": "Bearer " + r.json()["token"]}
+    # two gallery subjects: red shirt vs blue shirt
+    svc = ReidService(rstore, assign_threshold=0.99, sighting_gap_sec=0.0)
+    red = svc.observe(_person((40, 160, 240)), _state([_Track([10, 10, 60, 150], 1)]),
+                      "CAM-01")[0]["subject_id"]
+    blue = svc.observe(_person((230, 120, 20)), _state([_Track([10, 10, 60, 150], 2)]),
+                       "CAM-01")[0]["subject_id"]
+    assert red != blue
+    # subjects carry a description from the torso
+    subs = client.get("/api/reid/subjects", headers=h).json()["subjects"]
+    assert all(s["description"] is not None for s in subs)
+
+    hit = client.get("/api/reid/search?q=red", headers=h)
+    assert hit.status_code == 200
+    body = hit.json()
+    assert body["colors"] == ["red"]
+    assert body["results"][0]["subject"]["id"] == red
+    assert body["results"][0]["score"] > 0.5
+
+    miss = client.get("/api/reid/search?q=green", headers=h).json()
+    assert miss["results"] == []
+    # empty query returns no results without erroring
+    assert client.get("/api/reid/search?q=", headers=h).json()["results"] == []

@@ -12,10 +12,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import importlib.util
+
 import pytest
 
-import psycopg
-from psycopg.types.json import Jsonb
+PSYCOPG_INSTALLED = importlib.util.find_spec("psycopg") is not None
+if PSYCOPG_INSTALLED:
+    import psycopg
+    from psycopg.types.json import Jsonb
 
 from bhairav.backend.backups import (BackupService, dump, pg_metrics,
                                      restore, verify)
@@ -23,7 +27,7 @@ from bhairav.backend.backups import (BackupService, dump, pg_metrics,
 TEST_DB_URL = os.environ.get("BHAIRAV_TEST_DB_URL")
 
 pytestmark = pytest.mark.skipif(
-    not TEST_DB_URL or psycopg.__version__.startswith("0"),
+    not PSYCOPG_INSTALLED or not TEST_DB_URL,
     reason="needs BHAIRAV_TEST_DB_URL and psycopg")
 
 _ADMIN_URL = (TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"

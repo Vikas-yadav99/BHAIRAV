@@ -27,10 +27,12 @@ CREATE TABLE IF NOT EXISTS reid_subjects (
     notes      TEXT NOT NULL DEFAULT '',
     cameras    JSONB NOT NULL DEFAULT '[]'::jsonb,
     auto       BOOLEAN NOT NULL DEFAULT TRUE,
+    description JSONB,
     first_seen DOUBLE PRECISION,
     last_seen  DOUBLE PRECISION,
     created    DOUBLE PRECISION NOT NULL
 );
+ALTER TABLE reid_subjects ADD COLUMN IF NOT EXISTS description JSONB;
 CREATE TABLE IF NOT EXISTS reid_sightings (
     id         TEXT PRIMARY KEY,
     subject_id TEXT NOT NULL,
@@ -75,18 +77,18 @@ class PostgresReidStore:
 
     # ---- subjects ---------------------------------------------------------
     def create_subject(self, name: str, embedding: list,
-                       notes: str = "") -> dict:
+                       notes: str = "", description: dict | None = None) -> dict:
         sid = _new_id("P")
         now = time.time()
         with self._lock:
             cur = self._cursor()
             cur.execute(
                 "INSERT INTO reid_subjects (id, name, embedding, count, notes,"
-                " cameras, auto, first_seen, last_seen, created)"
-                " VALUES (%s, %s, %s, 1, %s, '[]', %s, NULL, NULL, %s)",
+                " cameras, auto, description, first_seen, last_seen, created)"
+                " VALUES (%s, %s, %s, 1, %s, '[]', %s, %s, NULL, NULL, %s)",
                 [sid, name or f"auto-{sid}",
                  Jsonb([round(float(v), 6) for v in embedding]), notes,
-                 not name, now])
+                 not name, Jsonb(description or None), now])
         return self.get(sid)
 
     def get(self, sid: str) -> dict | None:
@@ -102,6 +104,7 @@ class PostgresReidStore:
         return {"id": row["id"], "name": row["name"],
                 "embedding": list(row["embedding"]),
                 "count": int(row["count"]), "notes": row["notes"],
+                "description": row["description"],
                 "cameras": list(row["cameras"]),
                 "auto": bool(row["auto"]),
                 "first_seen": row["first_seen"],

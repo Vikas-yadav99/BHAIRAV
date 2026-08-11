@@ -808,6 +808,22 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         return {"sightings": _reid_or_503().store.sightings(
             subject_id=subject_id, camera=camera, limit=limit)}
 
+    @app.get("/api/reid/search")
+    def reid_search(q: str = Query("", max_length=200),
+                    limit: int = Query(20, ge=1, le=100),
+                    claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """Search gallery subjects by physical description ("red shirt, tall")."""
+        from bhairav.describe import parse_query, search_subjects
+        colors, height = parse_query(q)
+        if not colors and not height:
+            return {"query": q, "colors": [], "height": None, "results": []}
+        svc = _reid_or_503()
+        hits = search_subjects(svc.store.list(), colors, height, limit)
+        audit.append(claims["sub"], "search_reid_subjects", q or "(empty)")
+        return {"query": q, "colors": colors, "height": height,
+                "results": [{"subject": r["subject"], "score": r["score"]}
+                            for r in hits]}
+
     # ---- Phase 9 M5: read-only public monitor (privacy-blurred) ----------
     # The pipeline publishes sanitized frames (heads blurred, downscaled,
     # no tracks/poses/alerts) to hub channel "__public__"; this endpoint

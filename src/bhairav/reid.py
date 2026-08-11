@@ -209,12 +209,13 @@ class ReidStore:
 
     # ---- subjects ---------------------------------------------------------
     def create_subject(self, name: str, embedding: list,
-                       notes: str = "") -> dict:
+                       notes: str = "", description: dict | None = None) -> dict:
         with self._lock:
             sid = _new_id("P")
             rec = {"id": sid, "name": name or f"auto-{sid}",
                    "embedding": [round(float(v), 6) for v in embedding],
                    "count": 1, "notes": notes,
+                   "description": description or None,
                    "cameras": [], "auto": not name,
                    "first_seen": None, "last_seen": None,
                    "created": time.time()}
@@ -369,6 +370,20 @@ class ReidService:
         self._lock = threading.RLock()
         self._last_sighting: dict[tuple, float] = {}
 
+    def _describe(self, frame, bbox):
+        """Clothing color + height description for a person crop."""
+        try:
+            from .describe import describe_person
+            h, w = frame.shape[:2]
+            x1, y1, x2, y2 = (int(v) for v in bbox)
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(w, x2), min(h, y2)
+            if x2 <= x1 or y2 <= y1:
+                return None
+            return describe_person(frame[y1:y2, x1:x2], frame_h=h)
+        except Exception:
+            return None  # description is best-effort, never fatal
+
     def observe(self, frame, state, camera: str) -> list[dict]:
         """Process one frame's person tracks; returns per-track assignments."""
         if frame is None:
@@ -383,7 +398,9 @@ class ReidService:
             with self._lock:
                 match = self.store.best_match(emb, self.assign_threshold)
                 if match is None:
-                    rec = self.store.create_subject("", emb.tolist())
+                    desc = self._describe(frame, tr.bbox)
+                    rec = self.store.create_subject("", emb.tolist(),
+                                                    description=desc)
                     sid, score = rec["id"], 0.0
                 else:
                     sid, score = match
