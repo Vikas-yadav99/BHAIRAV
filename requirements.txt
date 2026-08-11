@@ -39,5 +39,7 @@ easyocr==1.7.2
 
 # ---- Dev ----
 pytest==9.1.1
+# FastAPI TestClient (test suite) - fastapi does not pull httpx itself
+httpx==0.28.1
 pip-audit==2.10.1
 ruff==0.9.10
