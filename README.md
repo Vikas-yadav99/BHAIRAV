@@ -423,10 +423,11 @@ app container can point straight at an RTSP camera with one command-line
 change. Storage remains file-based on a named volume; PostgreSQL is the
 roadmap milestone for scale-out (the compose file sketches the shape).
 
-## Phase 8 (in progress) - PostgreSQL evidence store
+## Phase 8 (in progress) - scale-out: PostgreSQL, multi-camera, HA
 
-The evidence store can now run on PostgreSQL instead of the file store, with
-the exact same API, recorder and face-search wiring. Set one of:
+**M1 - PostgreSQL evidence store.** The evidence store can run on PostgreSQL
+instead of the file store, with the exact same API, recorder and face-search
+wiring. Set one of:
 
 ```bash
 export BHAIRAV_DB_URL=postgresql://bhairav:pass@localhost:5432/bhairav
@@ -440,18 +441,32 @@ export BHAIRAV_DB_URL=postgresql://bhairav:pass@localhost:5432/bhairav
   clips when `evidence.encrypt: true` (wrong key -> unreadable, as before).
 - Schema is created automatically on first connect; the driver (`psycopg 3`)
   is optional and imported lazily - `pip install "psycopg[binary]==3.3.4"`.
-- `deploy/docker-compose.yml` now runs a `db` service (postgres:16-alpine)
-  with a health check and wires `DATABASE_URL` into the app; remove both to
-  stay on the file store.
-- Integration tests are gated behind `BHAIRAV_TEST_DB_URL` (see
-  `tests/test_evidence_pg.py`); the pure-logic unit tests always run.
-- The audit log now lives in Postgres too (same hash chain, `audit_log` table);
-  only the user store and the plate watchlist remain file-based for now. Next:
-  multi-camera and HA.
 
-## Next: Phase 8 (scale & the wider roadmap)
+**M1.5 - audit log on Postgres.** `pg_audit.py` keeps the byte-identical
+SHA-256 hash chain in the `audit_log` table, so a Postgres deployment can
+pick up where a JSONL log left off.
 
-Multi-camera support in the dashboard (the evidence store already tags
-`camera`), swap the file store for PostgreSQL, HA (multi-replica app + shared
-storage), the natural-language **Investigation Assistant**, abandoned-object /
-accident / riot detection, and public/police dashboards.
+**M2 - multi-camera.** The `cameras:` list in `config.yaml` runs one pipeline
+per camera (own detector, rules engine, evidence recorder), so track ids
+never collide across cameras. Frames are scoped to a WebSocket channel per
+camera (`/ws/stream?camera=CAM-02`), alerts broadcast to every viewer,
+evidence is stamped with the camera id, and `/api/evidence?camera=` filters
+on it. The dashboard live wall has a camera picker, the evidence tab a
+per-camera filter, the alert feed camera tags, and the status tab per-camera
+telemetry. Leave `cameras:` empty for the classic single `--source` setup.
+
+**M3 - HA + remaining stores on Postgres.** `pg_users.py` (PBKDF2 users) and
+`pg_plates.py` (watchlist + read log) complete the migration: every persistent
+store lives in the shared database, so `docker compose up -d --scale app=2`
+runs stateless replicas behind nginx (`ip_hash` keeps WebSocket clients on
+one replica) with no shared filesystem.
+
+Integration tests are gated behind `BHAIRAV_TEST_DB_URL` (see
+`tests/test_evidence_pg.py`, `test_audit_pg.py`, `test_users_plates_pg.py`);
+the pure-logic unit tests always run.
+
+## Next: Phase 8 (the wider roadmap)
+
+The natural-language **Investigation Assistant** (query evidence/audit in
+plain English, offline parser), abandoned-object / accident / riot detection,
+and public/police dashboards.

@@ -221,6 +221,8 @@ def main() -> int:
     from bhairav.backend.server import LiveHub, PipelineStats, create_app
     from bhairav.backend.users import DEFAULT_USERS, UserStore
 
+    db_url = args.db_url or os.environ.get("BHAIRAV_DB_URL") or cfg.backend.db
+
     # ---- startup security posture ---------------------------------------
     loopback = is_loopback(host)
     if secret in ("", "dev-secret-change-me") and not loopback and not os.environ.get("BHAIRAV_ALLOW_DEFAULT_SECRET"):
@@ -229,9 +231,14 @@ def main() -> int:
             + chr(10)
             + "  Set BHAIRAV_SECRET to a long random value (or BHAIRAV_ALLOW_DEFAULT_SECRET=1 for local dev only).")
 
-    users = UserStore(cfg.backend.users_file)
+    if db_url:
+        from bhairav.backend.pg_users import PostgresUserStore
+        users = PostgresUserStore(db_url)
+        print(f"[db] users: PostgreSQL ({db_url.split('@')[-1]})")
+    else:
+        users = UserStore(cfg.backend.users_file)
     weak = [d["username"] for d in DEFAULT_USERS
-            if users.get(d["username"]) and users._verify_password(
+            if users.get(d["username"]) and UserStore._verify_password(
                 d["password"], users.get(d["username"])["salt"],
                 users.get(d["username"])["iterations"], users.get(d["username"])["hash"])]
     if weak:
@@ -249,7 +256,6 @@ def main() -> int:
             "(base64 32-byte key, e.g. from: python -c " + chr(34) + "import os,base64;"
             "print(base64.b64encode(os.urandom(32)).decode())" + chr(34) + ") or pass --evidence-key.")
 
-    db_url = args.db_url or os.environ.get("BHAIRAV_DB_URL") or cfg.backend.db
     if db_url:
         from bhairav.backend.pg_audit import PostgresAuditLog
         from bhairav.backend.pg_store import PostgresEvidenceStore
@@ -293,9 +299,14 @@ def main() -> int:
         face = None
 
     # ---- vehicle watchlist (Phase 6: ANPR) --------------------------------
-    from bhairav.backend.anpr import PlateRegistry
-    plates = PlateRegistry(Path(evidence_dir).parent / "plates.json")
-    print("[security] vehicle watchlist: ENABLED (ANPR on synthetic plates)")
+    if db_url:
+        from bhairav.backend.pg_plates import PostgresPlateRegistry
+        plates = PostgresPlateRegistry(db_url)
+        print("[security] vehicle watchlist: ENABLED (ANPR watchlist in PostgreSQL)")
+    else:
+        from bhairav.backend.anpr import PlateRegistry
+        plates = PlateRegistry(Path(evidence_dir).parent / "plates.json")
+        print("[security] vehicle watchlist: ENABLED (ANPR on synthetic plates)")
 
     cam_registry = [{"id": c.id, "name": c.name, "source": c.source} for c in cams]
     app = create_app(store, audit, secret=secret, hub=hub, users=users,

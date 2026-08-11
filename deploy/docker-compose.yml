@@ -1,17 +1,18 @@
-# BHAIRAV - production stack: app + nginx (TLS termination)
+# BHAIRAV - production stack: HA app replicas + nginx (TLS termination) + PostgreSQL
 #
-#   docker compose -f deploy/docker-compose.yml up -d
+#   docker compose -f deploy/docker-compose.yml up -d --scale app=2
 #
 # First time (TLS):  ./deploy/nginx/generate_certs.sh  then place certs in ./certs/
 # Secrets: set in a .env file next to this compose file:
 #   BHAIRAV_SECRET=<long random>            # admin token signing secret
 #   BHAIRAV_EVIDENCE_KEY=<base64 32 bytes>  # AES-256 key for evidence at rest
 #
-# NOTE on storage: users / plates are still file-based on the
-# bhairav-data volume. The evidence store and the audit log use the `db`
-# service (PostgreSQL) - compose sets DATABASE_URL, which serve.py picks
-# up. To stay on the file store, remove DATABASE_URL below and the `db`
-# service.
+# Phase 8 HA (M3): every persistent store lives in the shared `db` service -
+# evidence (media as BYTEA), the hash-chained audit log, users, and the plate
+# watchlist. Replicas share state with no shared filesystem, so `--scale app=N`
+# is safe. nginx load-balances across replicas with ip_hash (WebSocket
+# stickiness). To stay on the file store, remove DATABASE_URL below and the
+# `db` service (single replica only).
 services:
   app:
     build:
@@ -19,11 +20,17 @@ services:
       dockerfile: deploy/Dockerfile
     image: bhairav:latest
     restart: unless-stopped
+    # Phase 8 HA: run N replicas behind nginx (docker compose up --scale app=N).
+    # All state lives in PostgreSQL, so replicas are stateless beyond the
+    # per-process live hub (a client is pinned to one replica by ip_hash).
+    deploy:
+      replicas: 2
     environment:
       BHAIRAV_SECRET: ${BHAIRAV_SECRET:?set BHAIRAV_SECRET in .env}
       BHAIRAV_EVIDENCE_KEY: ${BHAIRAV_EVIDENCE_KEY:?set BHAIRAV_EVIDENCE_KEY in .env}
       BHAIRAV_ALLOW_DEFAULT_PASSWORDS: "0"
-      # PostgreSQL evidence store (Phase 8): remove to stay on the file store
+      # PostgreSQL (Phase 8): evidence + audit + users + plate watchlist.
+      # Remove to stay on the file store (single replica only).
       DATABASE_URL: postgresql://bhairav:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/bhairav
     volumes:
       - bhairav-data:/data

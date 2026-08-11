@@ -29,8 +29,8 @@ deploy/nginx/generate_certs.sh
 #    edit deploy/docker-compose.yml -> app.command, e.g.:
 #      ["--source", "rtsp://user:pass@cam-ip:554/stream1", "--host", "0.0.0.0"]
 
-# 4. build + run
-docker compose -f deploy/docker-compose.yml up -d --build
+# 4. build + run (--scale app=N for N replicas; default compose runs 2)
+docker compose -f deploy/docker-compose.yml up -d --build --scale app=2
 docker compose -f deploy/docker-compose.yml logs -f app
 ```
 
@@ -45,18 +45,31 @@ Dashboard: `https://<host>/dashboard/`. API: `https://<host>/health`.
 - **Secrets via env** (`BHAIRAV_SECRET`, `BHAIRAV_EVIDENCE_KEY`); startup
   guards refuse default credentials on non-loopback interfaces.
 - **Evidence on a named volume** (`bhairav-data`) - survives rebuilds.
-- **PostgreSQL evidence store** (Phase 8) - the bundled `db` service is
-  enabled by default via `DATABASE_URL`; remove that env var and the `db`
-  service to go back to the file store.
+- **PostgreSQL backend** (Phase 8) - the bundled `db` service holds every
+  persistent store: evidence (media as BYTEA), the hash-chained audit log,
+  users, and the plate watchlist. Remove the `DATABASE_URL` env var and the
+  `db` service to go back to file-based stores (single replica only).
+
+## HA (Phase 8 M3)
+
+- Run `docker compose up -d --scale app=N` (the compose file defaults to 2).
+  All state lives in PostgreSQL, so replicas share evidence/audit/users/plates
+  with no shared filesystem.
+- nginx load-balances with `ip_hash`, pinning each client to one replica so
+  the live WebSocket channel stays consistent; WebSockets upgrade through the
+  proxy as before.
+- Replicas are stateless beyond their in-memory live hub and recent-alert
+  feed - a replica can be killed and replaced without losing anything
+  persisted.
 
 ## Honest notes
 
-- **Evidence storage and the audit log default to PostgreSQL** (the bundled
-  `db` service). Users and the plate watchlist remain file-based
-  (JSON/JSONL on the volume) for now.
-- **Single-replica.** For HA you would add a second app instance behind the
-  same nginx (uvicorn workers per instance), move evidence to shared/object
-  storage, and centralise the audit chain. Not included.
+- **In-memory per-replica state** (the WS hub and the recent-alert feed) is
+  not shared across replicas; ip_hash keeps clients on one replica, but a
+  replica restart reconnects viewers. A shared pub/sub (Redis) would remove
+  even that - future work.
+- **Single-replica caveats**: on the file store, run exactly one app
+  instance; the file-based stores are not safe for concurrent writers.
 - **Self-signed certs** are fine for private deployments; for public use point
   nginx at a real certificate (Let's Encrypt).
 - The ML models (YOLO/SFace/YuNet/pose/EasyOCR) are fetched at first run; make
