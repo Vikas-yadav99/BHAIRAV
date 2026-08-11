@@ -19,6 +19,8 @@ COPY config.yaml ./
 COPY src ./src
 COPY scripts ./scripts
 COPY dashboard ./dashboard
+# models/ must exist in the build context (a .gitkeep keeps it present on a
+# fresh clone); run scripts/fetch_models.py to populate the real weights
 COPY models ./models
 
 # non-root runtime user

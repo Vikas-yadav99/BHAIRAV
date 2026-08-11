@@ -115,6 +115,35 @@ class Scenario:
         return x, y, 0.0
 
 
+def variant_scenario(cfg: SyntheticConfig, offset_x: float = 0.14,
+                     offset_y: float = 0.05,
+                     jitter_amp: float | None = None) -> Scenario:
+    """The SAME people in a different layout - a second 'camera view'.
+
+    Every actor keeps its pid, colors and behavior role, but the waypoint
+    paths are translated (and clamped to the frame) so positions differ
+    from the default scene. Used by the Phase 9 re-id validation to score
+    cross-camera identity matching with known ground truth.
+    """
+    base = default_scenario(cfg)
+    shifted = []
+    for p in base.persons:
+        wps = [(min(max(x + offset_x, 0.03), 0.97),
+                min(max(y + offset_y, 0.10), 0.90), sp, hold)
+               for (x, y, sp, hold) in p.waypoints]
+        special = dict(p.special)
+        if "anchor" in special:  # keep fight clusters coherent
+            ax, ay = special["anchor"]
+            special["anchor"] = (min(max(ax + offset_x, 0.03), 0.97),
+                                  min(max(ay + offset_y, 0.10), 0.90))
+        shifted.append(PersonSpec(
+            p.pid, p.label, p.class_id, wps, size=p.size,
+            jitter_phase=p.jitter_phase, role=p.role, special=special))
+    return Scenario(shifted, base.duration_sec,
+                    jitter_amp=base.jitter_amp if jitter_amp is None
+                    else jitter_amp)
+
+
 def default_scenario(cfg: SyntheticConfig) -> Scenario:
     """The scripted demo scene. Timings chosen so every alert fires on schedule."""
     persons = [

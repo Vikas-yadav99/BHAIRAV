@@ -286,8 +286,11 @@ def check_thresholds(summary: ValidationSummary,
 # Reports
 # ---------------------------------------------------------------------------
 def render_markdown(summary: ValidationSummary, label: str | None = None,
-                    checks: list = None) -> str:
-    """A compact markdown validation report (CLI stdout + --json artifact)."""
+                    checks: list = None, extra_md: str | None = None) -> str:
+    """A compact markdown validation report (CLI stdout + --json artifact).
+
+    ``extra_md`` (e.g. the re-id section) is appended after the thresholds.
+    """
     lines = [f"# BHAIRAV validation report{f' - {label}' if label else ''}",
              "",
              f"- Frames: {summary.frames} | effective FPS: "
@@ -321,13 +324,15 @@ def render_markdown(summary: ValidationSummary, label: str | None = None,
                          f"{row['expected']}, got {row['actual']}")
         passed = sum(1 for c in checks if c["ok"])
         lines += ["", f"**{passed}/{len(checks)} thresholds passed**"]
+    if extra_md:
+        lines += ["", extra_md.strip()]
     return "\n".join(lines) + "\n"
 
 
 def render_html(summary: ValidationSummary, label: str | None = None,
-                checks: list = None) -> str:
+                checks: list = None, extra_md: str | None = None) -> str:
     """Self-contained HTML report (no external assets) for a browser."""
-    md = render_markdown(summary, label, checks)
+    md = render_markdown(summary, label, checks, extra_md)
     esc = (md.replace("&", "&amp;").replace("<", "&lt;")
            .replace(">", "&gt;"))
     body_lines = []

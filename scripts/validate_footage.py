@@ -61,6 +61,13 @@ def main() -> int:
                     help="write a self-contained HTML report to this path")
     ap.add_argument("--list-metrics", action="store_true",
                     help="print every metric the harness collects, then exit")
+    ap.add_argument("--reid", action="store_true",
+                    help="also run re-id validation: real-footage track "
+                         "self-consistency + deterministic cross-camera "
+                         "rank-1 accuracy (Phase 9)")
+    ap.add_argument("--reid-threshold", default=None,
+                    help="inline pass/fail thresholds for re-id metrics, "
+                         "e.g. 'reid_separation>=0.15,reid_rank1>=0.8'")
     args = ap.parse_args()
 
     from bhairav.config import load_config
@@ -85,7 +92,21 @@ def main() -> int:
     thresholds = _load_thresholds(args.threshold, args.thresholds)
     checks = check_thresholds(summary, thresholds) if thresholds else None
 
-    print(render_markdown(summary, args.label, checks), flush=True)
+    # Phase 9 M5: optional re-id validation (real footage + cross camera)
+    reid, reid_checks, extra_md = None, None, None
+    if args.reid:
+        from bhairav.eval.reid_eval import (check_reid_thresholds,
+                                            render_reid_markdown,
+                                            run_reid_validation)
+        print(f"[validate] running re-id validation (source={args.source})",
+              flush=True)
+        reid = run_reid_validation(detector, engine, cfg,
+                                   source=args.source,
+                                   max_frames=args.max_frames)
+        extra_md = render_reid_markdown(reid)
+        reid_checks = check_reid_thresholds(reid, args.reid_threshold)
+
+    print(render_markdown(summary, args.label, checks, extra_md), flush=True)
 
     if args.json_out:
         payload = {
@@ -95,6 +116,8 @@ def main() -> int:
             "summary": summary.to_dict(),
             "thresholds": {k: list(v) for k, v in thresholds.items()},
             "checks": checks or [],
+            "reid": reid,
+            "reid_checks": reid_checks or [],
             "alerts": [a.to_dict() for a in alerts],
         }
         out = Path(args.json_out)
@@ -104,14 +127,15 @@ def main() -> int:
     if args.report:
         out = Path(args.report)
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(render_html(summary, args.label, checks),
+        out.write_text(render_html(summary, args.label, checks, extra_md),
                        encoding="utf-8")
         print(f"[validate] wrote {out}")
 
-    if checks is not None:
-        failed = [c for c in checks if not c["ok"]]
+    all_checks = (checks or []) + (reid_checks or [])
+    if all_checks:
+        failed = [c for c in all_checks if not c["ok"]]
         if failed:
-            print(f"[validate] FAILED {len(failed)} of {len(checks)} "
+            print(f"[validate] FAILED {len(failed)} of {len(all_checks)} "
                   f"thresholds", file=sys.stderr)
             return 1
     return 0

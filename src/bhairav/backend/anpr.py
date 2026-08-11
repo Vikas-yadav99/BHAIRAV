@@ -241,9 +241,23 @@ class PlateRegistry:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps({"watch": self._watch,
                               "reads": list(self._reads)}, sort_keys=True)
-        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp.write_text(payload, encoding="utf-8")
-        os.replace(tmp, self.path)
+        # unique tmp name + retries: on Windows the target can be briefly
+        # held open (OneDrive/AV) -> os.replace raises WinError 5
+        for attempt in range(5):
+            try:
+                tmp = self.path.with_suffix(
+                    f"{self.path.suffix}.tmp{os.getpid()}.{attempt}")
+                tmp.write_text(payload, encoding="utf-8")
+                os.replace(tmp, self.path)
+                break
+            except OSError:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                if attempt == 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
 
     def watch(self, plate: str, reason: str = "", actor: str = "admin",
               now: float | None = None) -> dict:

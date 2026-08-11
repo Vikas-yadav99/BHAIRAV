@@ -262,7 +262,10 @@ def main() -> int:
     from bhairav.backend.server import LiveHub, PipelineStats, create_app
     from bhairav.backend.users import DEFAULT_USERS, UserStore
 
-    db_url = args.db_url or os.environ.get("BHAIRAV_DB_URL") or cfg.backend.db
+    # compose sets DATABASE_URL (12-factor convention); BHAIRAV_DB_URL and
+    # config backend.db are the other accepted ways to pick the store
+    db_url = (args.db_url or os.environ.get("BHAIRAV_DB_URL")
+              or os.environ.get("DATABASE_URL") or cfg.backend.db)
 
     # ---- startup security posture ---------------------------------------
     loopback = is_loopback(host)
