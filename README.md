@@ -1,4 +1,4 @@
-# BHAIRAV — Phase 5: Users, Workflow & Ops
+# BHAIRAV — Phase 7: Cameras, Real Plates & Deployment
 
 **B**ehavioral **H**azard **A**nalysis & **I**ntelligent **R**eal-time **A**ction **V**igilance
 
@@ -71,7 +71,7 @@ models run through OpenCV; plates default to template OCR). The real CCTV path
 adds `pip install ultralytics mediapipe`, and reading *real* plates well adds
 `pip install easyocr` + `rules.stolen_vehicle.backend: easyocr`.
 
-## Phase 3-5 - API & evidence
+## Phase 3-7 - API & evidence
 
 `scripts/serve.py` runs the pipeline in a background thread and exposes:
 
@@ -162,7 +162,7 @@ login -> evidence search -> viewer denied clip download (403) -> admin 200 ->
 audit chain intact -> WebSocket received live frames (13 tracks + 13 skeletons)
 and alerts (chase escalation, zone crossing, trespass, loitering).
 
-## Phase 4-5 - Dashboard (`dashboard/index.html`)
+## Phase 4-7 - Dashboard (`dashboard/index.html`)
 
 A single-file **React 18 SPA** (CDN UMD + Babel, no build step) served straight
 from the Phase 3 server, so `python scripts/serve.py` is a complete product:
@@ -422,6 +422,31 @@ self-signed cert generator. See `deploy/README.md` for the quick start. The
 app container can point straight at an RTSP camera with one command-line
 change. Storage remains file-based on a named volume; PostgreSQL is the
 roadmap milestone for scale-out (the compose file sketches the shape).
+
+## Phase 8 (in progress) - PostgreSQL evidence store
+
+The evidence store can now run on PostgreSQL instead of the file store, with
+the exact same API, recorder and face-search wiring. Set one of:
+
+```bash
+export BHAIRAV_DB_URL=postgresql://bhairav:pass@localhost:5432/bhairav
+# or in config.yaml:  backend.db: postgresql://...
+# or:  python scripts/serve.py --db-url postgresql://...
+```
+
+- `src/bhairav/backend/pg_store.py` implements the full `EvidenceStore`
+  interface (save/search/workflow/counts/expire/prune/export, media in BYTEA)
+  with parameterized SQL, event-id validation and AES-256-GCM encryption of
+  clips when `evidence.encrypt: true` (wrong key -> unreadable, as before).
+- Schema is created automatically on first connect; the driver (`psycopg 3`)
+  is optional and imported lazily - `pip install "psycopg[binary]==3.3.4"`.
+- `deploy/docker-compose.yml` now runs a `db` service (postgres:16-alpine)
+  with a health check and wires `DATABASE_URL` into the app; remove both to
+  stay on the file store.
+- Integration tests are gated behind `BHAIRAV_TEST_DB_URL` (see
+  `tests/test_evidence_pg.py`); the pure-logic unit tests always run.
+- Audit log, user store and the plate watchlist are still file-based; moving
+  them to Postgres is the next milestone, then multi-camera and HA.
 
 ## Next: Phase 8 (scale & the wider roadmap)
 

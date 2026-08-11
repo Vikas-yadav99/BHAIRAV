@@ -6,6 +6,9 @@ backend:
   secret: CHANGE_ME_LONG_RANDOM     # overridden by BHAIRAV_SECRET env in compose
   users_file: /data/output/users.json
   webhook_url: null                  # e.g. your Slack/Teams webhook for red alerts
+  # PostgreSQL evidence store (Phase 8): usually left null because compose
+  # sets DATABASE_URL; set it here (or via $BHAIRAV_DB_URL) if running bare.
+  db: null
 evidence:
   dir: /data/evidence
   encrypt: true

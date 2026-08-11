@@ -53,6 +53,7 @@ DEFAULTS: dict = {
         "max_recent_alerts": 200,
         "users_file": "output/users.json",
         "webhook_url": None,  # POST red alerts here (Slack-style); None disables
+        "db": None,           # Phase 8: PostgreSQL URL (postgresql://...) or None = file store
     },
     "evidence": {
         "dir": "output/evidence",
@@ -127,6 +128,7 @@ class BackendConfig:
     max_recent_alerts: int = 200
     users_file: str = "output/users.json"
     webhook_url: str | None = None
+    db: str | None = None   # Phase 8: PostgreSQL URL; None = file-based store
 
     @classmethod
     def from_dict(cls, d: dict) -> "BackendConfig":
@@ -135,7 +137,8 @@ class BackendConfig:
                    secret=d.get("secret", "dev-secret-change-me"),
                    max_recent_alerts=int(d.get("max_recent_alerts", 200)),
                    users_file=d.get("users_file", "output/users.json"),
-                   webhook_url=d.get("webhook_url") or None)
+                   webhook_url=d.get("webhook_url") or None,
+                   db=d.get("db") or None)
 
 
 @dataclass

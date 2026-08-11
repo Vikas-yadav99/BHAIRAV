@@ -1,4 +1,4 @@
-# BHAIRAV Phase 2 - Behavior Intelligence configuration
+# BHAIRAV - configuration (Phases 1-7)
 # All zone coordinates are NORMALIZED (0..1) relative to frame width/height.
 
 # detector: blob (synthetic, works offline) | yolo (real, needs ultralytics) | auto
@@ -99,6 +99,8 @@ backend:
   max_recent_alerts: 200
   users_file: output/users.json  # PBKDF2-hashed user store (Phase 5)
   webhook_url: null              # POST red alerts here (Slack-style); null = off
+  db: null                      # Phase 8: PostgreSQL URL (postgresql://user:pass@host:5432/bhairav)
+                                # or $BHAIRAV_DB_URL / --db-url; null = file-based evidence store
 
 evidence:
   dir: output/evidence

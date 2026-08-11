@@ -1,4 +1,4 @@
-"""BHAIRAV Phase 3-5 - live server: pipeline -> LiveHub -> FastAPI/WebSocket.
+"""BHAIRAV Phase 3-7 - live server: pipeline -> LiveHub -> FastAPI/WebSocket.
 
 Usage:
   python scripts/serve.py                    # synthetic scene + API on :8000
@@ -91,7 +91,7 @@ def run_stream(cfg, source, detector, engine, hub, store, evidence_dir, stop,
             recorder.on_alert(a, state.frame, state=state)
             log.write(a)
             recent_alerts.append(a.to_dict())
-            del recent_alerts[:-100]   # keep a bounded rolling feed
+            del recent_alerts[:-cfg.backend.max_recent_alerts]  # bounded rolling feed (backend.max_recent_alerts)
             if a.severity.value == "red":
                 webhook_notify(webhook_url, a.to_dict())
         # close events that have gone quiet (respects post_sec)
@@ -137,13 +137,16 @@ def run_stream(cfg, source, detector, engine, hub, store, evidence_dir, stop,
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="BHAIRAV Phase 3 live server")
+    ap = argparse.ArgumentParser(description="BHAIRAV live server (Phases 1-7)")
     ap.add_argument("--source", default="blob")
     ap.add_argument("--detector", default="auto")
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--host", default=None)
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--evidence", default=None, help="evidence dir (default: cfg)")
+    ap.add_argument("--db-url", default=None,
+                    help="PostgreSQL URL (or $BHAIRAV_DB_URL / backend.db in "
+                         "config.yaml); enables the PG evidence store")
     ap.add_argument("--evidence-key", default=None,
                     help="base64 32-byte AES-256 key for evidence at rest "
                          "(default: $BHAIRAV_EVIDENCE_KEY)")
@@ -194,10 +197,27 @@ def main() -> int:
             "print(base64.b64encode(os.urandom(32)).decode())\") or pass --evidence-key.")
 
     audit = AuditLog(Path(evidence_dir) / "audit.jsonl")
-    store = EvidenceStore(evidence_dir, camera=cfg.evidence.camera,
-                          fps=detector.fps, blur_faces=cfg.evidence.blur_faces,
-                          encrypt=cfg.evidence.encrypt, key=evidence_key,
-                          max_events=cfg.evidence.max_events)
+    db_url = args.db_url or os.environ.get("BHAIRAV_DB_URL") or cfg.backend.db
+    if db_url:
+        from bhairav.backend.pg_store import PostgresEvidenceStore
+        try:
+            store = PostgresEvidenceStore(
+                db_url, camera=cfg.evidence.camera, fps=detector.fps,
+                blur_faces=cfg.evidence.blur_faces,
+                encrypt=cfg.evidence.encrypt, key=evidence_key,
+                max_events=cfg.evidence.max_events, root=evidence_dir)
+        except RuntimeError as exc:
+            raise SystemExit(
+                "REFUSING TO START: PostgreSQL evidence store unavailable.\n"
+                f"  {exc}")
+        print(f"[db] evidence store: PostgreSQL ({db_url.split('@')[-1]})")
+    else:
+        store = EvidenceStore(evidence_dir, camera=cfg.evidence.camera,
+                              fps=detector.fps,
+                              blur_faces=cfg.evidence.blur_faces,
+                              encrypt=cfg.evidence.encrypt, key=evidence_key,
+                              max_events=cfg.evidence.max_events)
+        print(f"[db] evidence store: file-based ({evidence_dir})")
     stats = PipelineStats()
     webhook_url = cfg.backend.webhook_url
     hub = LiveHub()
@@ -235,7 +255,7 @@ def main() -> int:
 
     import uvicorn
     scheme = "https" if (args.tls_cert and args.tls_key) else "http"
-    print(f"BHAIRAV Phase 5 server -> {scheme}://{host}:{port}  (evidence: {evidence_dir})")
+    print(f"BHAIRAV Phase 7 server -> {scheme}://{host}:{port}  (evidence: {evidence_dir})")
     print(f"Dashboard: {scheme}://{host}:{port}/dashboard/")
     if cfg.evidence.encrypt:
         print("[security] evidence encryption at rest: ENABLED (AES-256-GCM)")

@@ -5,7 +5,7 @@
 ```
 deploy/
   Dockerfile              # app image (python:3.12-slim, non-root user)
-  docker-compose.yml      # app + nginx (TLS) [+ commented postgres milestone]
+  docker-compose.yml      # app + nginx (TLS) + PostgreSQL (evidence store)
   config.override.yaml    # mounted as /app/config.yaml (deep-merged over defaults)
   nginx/
     nginx.conf            # reverse proxy, TLS 1.2+, WS upgrade, edge rate limit
@@ -19,6 +19,7 @@ deploy/
 cat > deploy/.env <<'EOF'
 BHAIRAV_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
 BHAIRAV_EVIDENCE_KEY=$(python -c "import os,base64; print(base64.b64encode(os.urandom(32)).decode())")
+POSTGRES_PASSWORD=$(python -c "import secrets; print(secrets.token_urlsafe(24))")
 EOF
 
 # 2. TLS certs (replace with real ones for public exposure)
@@ -44,13 +45,15 @@ Dashboard: `https://<host>/dashboard/`. API: `https://<host>/health`.
 - **Secrets via env** (`BHAIRAV_SECRET`, `BHAIRAV_EVIDENCE_KEY`); startup
   guards refuse default credentials on non-loopback interfaces.
 - **Evidence on a named volume** (`bhairav-data`) - survives rebuilds.
+- **PostgreSQL evidence store** (Phase 8) - the bundled `db` service is
+  enabled by default via `DATABASE_URL`; remove that env var and the `db`
+  service to go back to the file store.
 
 ## Honest notes
 
-- **Storage is file-based today** (users/audit/evidence/plates as JSON/JSONL on
-  the volume). PostgreSQL is a roadmap milestone; the commented `db` service in
-  the compose file sketches the shape of that migration, but the app does not
-  talk to Postgres yet.
+- **Evidence storage defaults to PostgreSQL** (the bundled `db` service).
+  Users, audit and the plate watchlist remain file-based (JSON/JSONL on the
+  volume) for now; moving those to Postgres is the next step.
 - **Single-replica.** For HA you would add a second app instance behind the
   same nginx (uvicorn workers per instance), move evidence to shared/object
   storage, and centralise the audit chain. Not included.

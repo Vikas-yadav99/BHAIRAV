@@ -7,9 +7,11 @@
 #   BHAIRAV_SECRET=<long random>            # admin token signing secret
 #   BHAIRAV_EVIDENCE_KEY=<base64 32 bytes>  # AES-256 key for evidence at rest
 #
-# NOTE on storage: today all state (users, audit, evidence, plates) is
-# file-based and lives on the bhairav-data volume. PostgreSQL is a roadmap
-# milestone; the commented `db` service shows the shape of that migration.
+# NOTE on storage: users / audit / plates are still file-based on the
+# bhairav-data volume. The evidence store can use the `db` service
+# (PostgreSQL) instead of the file store - compose sets DATABASE_URL, which
+# serve.py picks up. To stay on the file store, remove DATABASE_URL below
+# and the `db` service.
 services:
   app:
     build:
@@ -21,11 +23,16 @@ services:
       BHAIRAV_SECRET: ${BHAIRAV_SECRET:?set BHAIRAV_SECRET in .env}
       BHAIRAV_EVIDENCE_KEY: ${BHAIRAV_EVIDENCE_KEY:?set BHAIRAV_EVIDENCE_KEY in .env}
       BHAIRAV_ALLOW_DEFAULT_PASSWORDS: "0"
+      # PostgreSQL evidence store (Phase 8): remove to stay on the file store
+      DATABASE_URL: postgresql://bhairav:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/bhairav
     volumes:
       - bhairav-data:/data
       - ./config.override.yaml:/app/config.yaml:ro   # optional: per-deploy config
     expose:
       - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
     networks: [bhairav]
     # uncomment when the source is an RTSP camera
     # command: ["--source", "rtsp://user:pass@cam-ip:554/stream1", "--host", "0.0.0.0"]
@@ -50,19 +57,24 @@ services:
       - app
     networks: [bhairav]
 
-  # db:  # PostgreSQL is a ROADMAP milestone (storage is file-based today)
-  #   image: postgres:16-alpine
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_DB: bhairav
-  #     POSTGRES_USER: bhairav
-  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
-  #   volumes: [pg-data:/var/lib/postgresql/data]
-  #   networks: [bhairav]
+  db:   # PostgreSQL evidence store (Phase 8)
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bhairav
+      POSTGRES_USER: bhairav
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes: [pg-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bhairav -d bhairav"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [bhairav]
 
 volumes:
   bhairav-data:
-  # pg-data:
+  pg-data:
 
 networks:
   bhairav:
