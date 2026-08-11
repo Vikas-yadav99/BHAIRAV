@@ -465,8 +465,16 @@ Integration tests are gated behind `BHAIRAV_TEST_DB_URL` (see
 `tests/test_evidence_pg.py`, `test_audit_pg.py`, `test_users_plates_pg.py`);
 the pure-logic unit tests always run.
 
+**M4 - Investigation Assistant.** `POST /api/assistant/query` turns a
+plain-English sentence ("show red fight alerts in the plaza last 7 days",
+"plate MH12AB1234 seen on CAM-02", "who logged in today") into structured
+filters via an offline, dependency-free parser (`assistant.py`): severity and
+rule synonyms, zone/camera names, relative time windows, plate-like tokens
+(cross-referenced against the ANPR read log) and audit-trail intents with
+actor detection. The dashboard's new Assistant tab shows the parser's plan
+(what it understood), the matching evidence cards, plate reads and audit
+rows. No LLM, no network - deterministic and testable.
+
 ## Next: Phase 8 (the wider roadmap)
 
-The natural-language **Investigation Assistant** (query evidence/audit in
-plain English, offline parser), abandoned-object / accident / riot detection,
-and public/police dashboards.
+Abandoned-object / accident / riot detection, and public/police dashboards.

@@ -312,7 +312,9 @@ def main() -> int:
     app = create_app(store, audit, secret=secret, hub=hub, users=users,
                      stats=stats, webhook_url=webhook_url, face=face,
                      plates=plates, recent_alerts=recent_alerts,
-                     cameras=cam_registry)
+                     cameras=cam_registry,
+                     assistant_ctx={"zones": [z.name for z in cfg.zones],
+                                    "rules": list(cfg.rules.keys())})
 
     # run one pipeline thread per camera
     stop = threading.Event()

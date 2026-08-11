@@ -298,7 +298,8 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
                login_limiter: RateLimiter | None = None,
                face: dict | None = None,
                plates: "PlateRegistry | None" = None,
-               cameras: list[dict] | None = None) -> Any:
+               cameras: list[dict] | None = None,
+               assistant_ctx: dict | None = None) -> Any:
     """Build the FastAPI application. Imports fastapi lazily."""
     try:
         from fastapi import (Body, Depends, FastAPI, HTTPException, Query,
@@ -596,6 +597,41 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
     def vehicle_reads(claims: dict = Depends(require(PERM_EVIDENCE_EXPORT)),
                       limit: int = Query(50, le=200)):
         return {"reads": _plates_or_503().recent_reads(limit)}
+
+    # ---- Investigation Assistant (Phase 8 M4) -----------------------------
+    @app.post("/api/assistant/query")
+    def assistant_query(request: Request, payload: dict = Body(...),
+                        claims: dict = Depends(require(PERM_EVIDENCE_EXPORT))):
+        _reject_large_body(request)
+        from .assistant import parse_query
+        q = str(payload.get("query", "")).strip()
+        if not q:
+            raise HTTPException(status_code=400, detail="query is required")
+        ctx = {
+            "zones": list((assistant_ctx or {}).get("zones", [])),
+            "cameras": [c["id"] for c in (cameras or [])],
+            "users": [u["username"] for u in users.public_view()],
+            "now": time.time(),
+        }
+        parsed = parse_query(q, ctx)
+        events = store.search(**parsed["search_kwargs"])
+        plate_reads: list[dict] = []
+        if parsed["plates"] and plates is not None:
+            want = set(parsed["plates"])
+            plate_reads = [r for r in plates.recent_reads(200)
+                           if r["plate"] in want]
+        audit_rows: list[dict] = []
+        if parsed["want_audit"]:
+            audit_rows = audit.query(actor=parsed["actor"], limit=50)
+        audit.append(claims["sub"], "assistant_query", q[:200])
+        return {
+            "query": q,
+            "plan": parsed["plan"],
+            "warnings": parsed["warnings"],
+            "events": [e.to_dict() for e in events],
+            "plate_reads": plate_reads,
+            "audit": audit_rows,
+        }
 
     # ---- face search (Phase 6: find a person in evidence by photo) --------
     def _face_or_503():

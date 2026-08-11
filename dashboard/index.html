@@ -1138,6 +1138,109 @@ function VehiclesTab({ token, role }) {
   );
 }
 
+// ---------- Assistant tab (Phase 8 M4: plain-English investigation) ----------
+const EXAMPLES = [
+  'show red fight alerts in the plaza last 7 days',
+  'plate MH12AB1234 seen on CAM-02 yesterday',
+  'all orange loitering events last 24 hours',
+  'who logged in today',
+  'trespass alerts in the server_room',
+];
+
+function AssistantTab({ token }) {
+  const [q, setQ] = useState('');
+  const [res, setRes] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function run(query) {
+    const text = (query !== undefined ? query : q).trim();
+    if (!text) return;
+    setBusy(true); setErr(''); setRes(null);
+    try {
+      const r = await fetch('/api/assistant/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ query: text }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || 'HTTP ' + r.status);
+      setRes(d);
+    } catch (ex) { setErr(String(ex.message || ex)); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div>
+      <div className="search-row">
+        <input type="text" placeholder="Ask in plain English… e.g. red fight alerts in the plaza last 7 days"
+               value={q} onChange={e => setQ(e.target.value)}
+               onKeyDown={e => { if (e.key === 'Enter') run(); }} />
+        <button className="btn btn-primary" style={{ width: 'auto' }} disabled={busy} onClick={() => run()}>
+          {busy ? 'Thinking…' : '🤖 Ask'}
+        </button>
+      </div>
+      <div className="search-row">
+        {EXAMPLES.map((ex, i) => (
+          <button key={i} className="pill" style={{ cursor: 'pointer' }} onClick={() => { setQ(ex); run(ex); }}>{ex}</button>
+        ))}
+      </div>
+      {err && <div className="err">{err}</div>}
+      {res && (
+        <>
+          {(res.warnings || []).map((w, i) => <div key={i} className="err">{w}</div>)}
+          {res.plan && res.plan.length > 0 && (
+            <div className="search-row">
+              <span className="pill">🔎 understood:</span>
+              {res.plan.map((p, i) => <span key={i} className="chip" style={{ background: '#0d1526', color: 'var(--cyan)', border: '1px solid var(--border)' }}>{p}</span>)}
+            </div>
+          )}
+          <div className="count">{res.events.length} matching events · {res.audit.length} audit entries{res.plate_reads.length ? ` · ${res.plate_reads.length} plate read(s)` : ''}</div>
+          <div className="ev-grid">
+            {res.events.map(e => (
+              <div className="ev-card" key={e.event_id} onClick={() => { window.location.href = '/dashboard/'; }}>
+                <SnapImg token={token} eventId={e.event_id} />
+                <div className="ev-body">
+                  <div className="ev-top">
+                    <span className="sev-badge" style={sevStyle(e.severity)}>{e.severity.toUpperCase()}</span>
+                    <span className="ev-rule">{e.rule}</span>
+                  </div>
+                  <div className="ev-meta">t={e.start_ts.toFixed(1)}s · {e.frame_count} frames · {e.camera}</div>
+                  <div className="ev-msg">{e.message}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {res.events.length === 0 && <div className="feed-empty">No evidence matches.</div>}
+          {res.plate_reads.length > 0 && (
+            <div className="stat-col">
+              <h3>Plate reads</h3>
+              <div className="result-list">
+                {res.plate_reads.map((r, i) => (
+                  <div className="result-card" key={i}><b>{r.plate}</b><span className="muted">t={r.ts.toFixed(1)}s</span></div>
+                ))}
+              </div>
+            </div>
+          )}
+          {res.audit.length > 0 && (
+            <div className="stat-col">
+              <h3>Audit trail</h3>
+              <table className="tbl">
+                <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th></tr></thead>
+                <tbody>
+                  {res.audit.slice().reverse().map((a, i) => (
+                    <tr key={i}><td className="muted">{a.ts}</td><td>{a.actor}</td><td>{a.action}</td><td className="muted">{a.target || '—'}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ---------- App shell ----------
 function App() {
   const [auth, setAuth] = useState(() => {
@@ -1161,6 +1264,7 @@ function App() {
     { id: 'evidence', label: '🗂 Evidence' },
     { id: 'status', label: '📊 Status' },
   ];
+  if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'assistant', label: '🤖 Assistant' });
   if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'search', label: '🔎 Search' });
   if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'vehicles', label: '🚗 Vehicles' });
   if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'audit', label: '🛡 Audit' });
@@ -1185,6 +1289,7 @@ function App() {
         {tab === 'live' && <LiveTab token={auth.token} />}
         {tab === 'evidence' && <EvidenceTab token={auth.token} role={auth.role} />}
         {tab === 'status' && <StatusTab token={auth.token} role={auth.role} />}
+        {tab === 'assistant' && <AssistantTab token={auth.token} />}
         {tab === 'search' && <SearchTab token={auth.token} role={auth.role} />}
         {tab === 'vehicles' && <VehiclesTab token={auth.token} role={auth.role} />}
         {tab === 'audit' && <AuditTab token={auth.token} />}
