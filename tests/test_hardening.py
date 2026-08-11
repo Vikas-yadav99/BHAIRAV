@@ -122,3 +122,17 @@ def test_login_oversized_body_rejected(app_client):
     huge = "x" * (2 * 1024 * 1024 + 1)   # > 2 MB
     r = app_client.post("/auth/login", json={"username": huge, "password": "y"})
     assert r.status_code == 413
+
+
+def test_login_oversized_body_chunked_rejected(app_client):
+    # a generator body carries no content-length, so only the byte-counting
+    # ASGI middleware (not the header-only check) can reject it
+    chunk = b"x" * 65536
+
+    def body():
+        for _ in range(33):   # ~2.16 MB total
+            yield chunk
+
+    r = app_client.post("/auth/login", content=body(),
+                        headers={"Content-Type": "application/json"})
+    assert r.status_code == 413

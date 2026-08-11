@@ -65,7 +65,8 @@ non-default secret, e.g. `BHAIRAV_ADMIN_PASSWORD='Strong#Passw0rd!'`.
 
 ### 3. Injection & input handling
 - [ ] SQL injection attempts on any query param -> no error leak, no data change
-- [ ] Oversized body (`Content-Length` beyond cap) -> 413, connection not hung
+- [ ] Oversized body (with or without `Content-Length`, incl. chunked)
+      -> 413, connection closed; the app enforces a 2 MB cap at the ASGI layer
 - [ ] Path traversal in evidence/file endpoints (`../`, encoded `%2e%2e`) -> 400
 - [ ] Malformed JSON / YAML in config inputs -> clean 4xx, no stack trace
 - [ ] WebSocket messages oversized or malformed -> socket closed, server alive

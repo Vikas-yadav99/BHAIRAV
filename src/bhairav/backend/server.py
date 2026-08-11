@@ -1,4 +1,4 @@
-"""FastAPI services + WebSocket live stream (Phase 3-5).
+"""FastAPI services + WebSocket live stream (Phase 3-7).
 
 REST endpoints:
     POST /auth/login                  -> capability token (username, password)
@@ -49,8 +49,85 @@ from .users import UserError, UserStore
 
 # Reject JSON bodies above this size at the API edge (login/user/note
 # endpoints): a 2 MB cap stops oversized-payload resource exhaustion while
-# leaving normal evidence metadata traffic untouched.
+# leaving normal evidence metadata traffic untouched. The cap is enforced
+# twice: _reject_large_body() is a cheap content-length header check on the
+# write endpoints, and _BodyLimitMiddleware counts actual bytes read so a
+# chunked transfer (no content-length) cannot slip past.
 MAX_JSON_BODY_BYTES = 2 * 1024 * 1024
+
+
+class _BodyTooLarge(BaseException):
+    """Internal signal: a request body exceeded the configured cap.
+
+    Subclasses BaseException on purpose: FastAPI's body parser wraps
+    ``await request.json()`` in ``except Exception``, so a plain Exception
+    raised from the receive channel would be swallowed and turned into a
+    400/422 instead of unwinding to the middleware, which sends the 413.
+    (Same rationale as asyncio.CancelledError.)"""
+
+    def __init__(self, received: int, limit: int):
+        super().__init__(received, limit)
+
+
+class _BodyLimitMiddleware:
+    """ASGI middleware enforcing a hard cap on HTTP request bodies.
+
+    The header-only helper checks ``content-length``; a chunked transfer
+    encodes no length, so the middleware also counts bytes as they arrive
+    and aborts with 413 the moment the cap is exceeded. This applies to
+    every endpoint uniformly, not just the ones that remember to check.
+    """
+
+    def __init__(self, app, max_bytes: int):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        cl = _header_value(scope, b"content-length")
+        if cl and cl.isdigit() and int(cl) > self.max_bytes:
+            await _send_413(send)
+            return
+
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    raise _BodyTooLarge(received, self.max_bytes)
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        except _BodyTooLarge:
+            await _send_413(send)
+
+
+def _header_value(scope, name: bytes) -> str | None:
+    for key, value in scope.get("headers", ()):
+        if key == name:
+            return value.decode("latin-1")
+    return None
+
+
+async def _send_413(send) -> None:
+    body = b"request body too large"
+    await send({
+        "type": "http.response.start",
+        "status": 413,
+        # close the connection: the request body is unread and would
+        # otherwise poison the next keep-alive request on this socket
+        "headers": [(b"content-type", b"text/plain; charset=utf-8"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                    (b"connection", b"close")],
+    })
+    await send({"type": "http.response.body", "body": body})
 LOGIN_RATE_LIMIT = 10      # attempts per IP per window
 LOGIN_RATE_WINDOW_SEC = 60.0
 
@@ -211,7 +288,8 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         if cl and cl.isdigit() and int(cl) > MAX_JSON_BODY_BYTES:
             raise HTTPException(status_code=413, detail="request body too large")
 
-    app = FastAPI(title="BHAIRAV - Evidence & Live API", version="5.0.0")
+    app = FastAPI(title="BHAIRAV - Evidence & Live API", version="7.0.0")
+    app.add_middleware(_BodyLimitMiddleware, max_bytes=MAX_JSON_BODY_BYTES)
 
     # Phase 4: serve the React dashboard (dashboard/index.html) from the repo.
     # os.path.dirname(__file__) is the backend/ dir, so parents[2] is the repo root.
@@ -278,7 +356,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "service": "bhairav-phase5",
+        return {"status": "ok", "service": "bhairav-phase7",
                 "time": round(time.time(), 3), "clients": hub.client_count}
 
     # ---- ops status -------------------------------------------------------
@@ -287,7 +365,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         counts = store.counts()
         audit_ok, problems = audit.verify()
         return {
-            "service": "bhairav", "version": "5.0.0",
+            "service": "bhairav", "version": "7.0.0",
             "time": round(time.time(), 3),
             "pipeline": stats.snapshot(),
             "clients": hub.client_count,
