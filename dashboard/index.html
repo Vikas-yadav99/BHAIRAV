@@ -347,7 +347,18 @@ function LiveTab({ token }) {
   const [hud, setHud] = useState({ tracks: 0, persons: 0, vehicles: 0, fps: 0, alerts: 0 });
   const [recent, setRecent] = useState([]);
   const [connected, setConnected] = useState(false);
+  const [cams, setCams] = useState([]);       // Phase 8 M2: camera registry
+  const [cam, setCam] = useState('');         // selected camera id ('' = all)
   const fpsRef = useRef({ t: 0, n: 0 });
+
+  // camera registry from /api/status (default to the first camera)
+  useEffect(() => {
+    api(token).get('/api/status').then(d => {
+      const list = d.cameras || [];
+      setCams(list);
+      setCam(c => c || (list.length ? list[0].id : ''));
+    }).catch(() => {});
+  }, [token]);
 
   useEffect(() => {
     let ws;
@@ -355,8 +366,9 @@ function LiveTab({ token }) {
     let retry = 0;
     let timer = null;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const camQ = cam ? `&camera=${encodeURIComponent(cam)}` : '';
     function connect() {
-      ws = new WebSocket(`${proto}://${location.host}/ws/stream?token=${token}`);
+      ws = new WebSocket(`${proto}://${location.host}/ws/stream?token=${token}${camQ}`);
       setStatus('connecting');
       ws.onopen = () => { if (alive) { retry = 0; setStatus('live'); setConnected(true); } };
       ws.onmessage = (ev) => {
@@ -371,7 +383,7 @@ function LiveTab({ token }) {
           const persons = (msg.tracks || []).filter(t => t.label === 'person').length;
           setHud({ tracks: (msg.tracks || []).length, persons, vehicles: (msg.tracks || []).length - persons, fps: Math.round(fr.n), alerts: (msg.alerts || []).length });
           if (msg.alerts && msg.alerts.length) {
-            const items = msg.alerts.map(a => ({ ...a, _id: a.timestamp + a.rule + (a.track_id || 0) }));
+            const items = msg.alerts.map(a => ({ ...a, camera: a.camera || msg.camera, _id: a.timestamp + a.rule + (a.track_id || 0) }));
             setFeed(f => [...items.reverse(), ...f].slice(0, 40));
             setRecent(items);
           }
@@ -382,7 +394,7 @@ function LiveTab({ token }) {
     }
     connect();
     return () => { alive = false; if (timer) clearTimeout(timer); try { ws.close(); } catch (_) {} };
-  }, [token]);
+  }, [token, cam]);
 
   // paint frame + overlay once per incoming frame
   useEffect(() => {
@@ -405,7 +417,12 @@ function LiveTab({ token }) {
     <div className="live-grid">
       <div className="stream-card">
         <div className="stream-head">
-          <span className="cam">📷 CAM-01 — Synthetic Plaza</span>
+          <span className="cam">📷 {(cams.find(c => c.id === cam) || {}).name || cam || 'All cameras'}</span>
+          <select value={cam} onChange={e => setCam(e.target.value)}
+                  style={{ background: '#0d1526', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: '5px 8px', fontSize: 12 }}>
+            {cams.map(c => <option key={c.id} value={c.id}>{c.id} — {c.name}</option>)}
+            {cams.length > 1 && <option value="">all cameras</option>}
+          </select>
           <span className="pill"><span className={'dot ' + (connected ? 'live' : 'idle')} />{status}</span>
           <span className="spacer" />
           <span style={{fontSize:11}}>frame {frame ? (frame.ts || 0).toFixed(1) + 's' : '—'}</span>
@@ -430,6 +447,7 @@ function LiveTab({ token }) {
             <div className="feed-item" key={a._id || i}>
               <span className="sev" style={{ background: SEV_COLORS[a.severity] || '#94a3b8' }} />
               <span className="msg">{a.message}</span>
+              {a.camera && <span className="rule">{a.camera}</span>}
               <span className="rule">{a.rule}</span>
               <span className="ts">{a.timestamp.toFixed(1)}s</span>
             </div>
@@ -446,9 +464,15 @@ function EvidenceTab({ token, role }) {
   const [q, setQ] = useState('');
   const [rule, setRule] = useState('');
   const [sev, setSev] = useState('');
+  const [cam, setCam] = useState('');       // Phase 8 M2: per-camera filter
+  const [cams, setCams] = useState([]);
   const [sel, setSel] = useState(null);
   const [err, setErr] = useState('');
   const [clipUrl, setClipUrl] = useState(null);
+
+  useEffect(() => {
+    api(token).get('/api/status').then(d => setCams(d.cameras || [])).catch(() => {});
+  }, [token]);
 
   const canDownload = role === 'operator' || role === 'analyst' || role === 'admin';
   const canExport = role === 'analyst' || role === 'admin';
@@ -456,8 +480,8 @@ function EvidenceTab({ token, role }) {
   const canDelete = role === 'admin';
 
   // filters via ref so the debounced load always sees the latest values
-  const filters = useRef({ q: '', rule: '', sev: '' });
-  filters.current = { q, rule, sev };
+  const filters = useRef({ q: '', rule: '', sev: '', cam: '' });
+  filters.current = { q, rule, sev, cam };
 
   const load = useCallback(async () => {
     const f = filters.current;
@@ -465,6 +489,7 @@ function EvidenceTab({ token, role }) {
     if (f.q) params.set('q', f.q);
     if (f.rule) params.set('rule', f.rule);
     if (f.sev) params.set('severity', f.sev);
+    if (f.cam) params.set('camera', f.cam);
     params.set('limit', '200');
     try {
       const res = await api(token).get('/api/evidence?' + params.toString());
@@ -478,7 +503,7 @@ function EvidenceTab({ token, role }) {
   }
   const debouncedLoad = useRef(debounce(load, 400)).current;
 
-  useEffect(() => { load(); }, [load, rule, sev]);
+  useEffect(() => { load(); }, [load, rule, sev, cam]);
   useEffect(() => {
     if (q === '') load(); else debouncedLoad();
   }, [q, load]);
@@ -510,6 +535,7 @@ function EvidenceTab({ token, role }) {
     if (f.q) params.set('q', f.q);
     if (f.rule) params.set('rule', f.rule);
     if (f.sev) params.set('severity', f.sev);
+    if (f.cam) params.set('camera', f.cam);
     params.set('limit', '500');
     try {
       const r = await fetch('/api/evidence/export?' + params.toString(), { headers: { 'Authorization': 'Bearer ' + token } });
@@ -561,6 +587,10 @@ function EvidenceTab({ token, role }) {
         <select value={sev} onChange={e => setSev(e.target.value)}>
           <option value="">all severities</option>
           {['yellow','orange','red'].map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select value={cam} onChange={e => setCam(e.target.value)}>
+          <option value="">all cameras</option>
+          {cams.map(c => <option key={c.id} value={c.id}>{c.id} — {c.name}</option>)}
         </select>
         {canExport && <button className="btn btn-ghost" onClick={exportZip}>📦 export zip</button>}
         {canDelete && <button className="btn btn-ghost" onClick={expire}>🧹 run retention</button>}
@@ -720,6 +750,19 @@ function StatusTab({ token, role }) {
           {Object.entries(ev.by_rule || {}).map(([r, n]) => (
             <span className="pill" key={r}>{r} <b style={{color:'var(--text)'}}>{n}</b></span>
           ))}
+        </div>
+      </div>
+      <div className="stat-col">
+        <h3>Cameras (Phase 8 M2)</h3>
+        <div style={{display:'flex', gap:10, flexWrap:'wrap'}}>
+          {(data.pipeline?.cameras || []).map(c => (
+            <div className="stat-card" key={c.camera} style={{minWidth: 220}}>
+              <div className="k">{c.camera} · {c.name || ''}</div>
+              <div className="v" style={{fontSize: 20}}>{c.frames}</div>
+              <div className="s">{c.alerts} alerts · {c.fps} fps · {c.source?.connected ? '● live' : '○ offline'}</div>
+            </div>
+          ))}
+          {(data.pipeline?.cameras || []).length === 0 && <div className="muted" style={{fontSize: 13}}>No camera telemetry.</div>}
         </div>
       </div>
     </div>

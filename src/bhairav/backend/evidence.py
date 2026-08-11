@@ -78,6 +78,7 @@ class ActiveEvent:
     during_frames: list[bytes] = field(default_factory=list)
     first_ts: float = 0.0
     last_ts: float = 0.0
+    camera: str | None = None   # Phase 8 M2: set by the recorder per camera
     # frames are stored blurred at capture time so privacy holds at rest too
 
 
@@ -97,8 +98,9 @@ class EventRecorder:
 
     def __init__(self, store: "EvidenceStore", pre_sec: float = 5.0,
                  post_sec: float = 5.0, min_gap_sec: float = 10.0,
-                 blur_faces: bool = True):
+                 blur_faces: bool = True, camera: str = "CAM-01"):
         self.store = store
+        self.camera = camera
         self.pre_sec = pre_sec
         self.post_sec = post_sec
         self.min_gap_sec = min_gap_sec  # min time between independent events of same key
@@ -141,6 +143,7 @@ class EventRecorder:
             pre_frames=self._buffer.frames_before(alert.timestamp),
             first_ts=alert.timestamp,
             last_ts=alert.timestamp,
+            camera=self.camera,
         )
         if img is not None:
             ev.during_frames.append(self._encode(img))
@@ -457,7 +460,7 @@ class EvidenceStore:
             "start_ts": event.first_ts,
             "end_ts": event.last_ts,
             "frame_count": len(frames),
-            "camera": self.camera,
+            "camera": event.camera or self.camera,
             "created": now,
             "blurred": self.blur_faces,
             "encrypted": self.encrypt,

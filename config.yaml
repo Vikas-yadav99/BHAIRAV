@@ -91,6 +91,20 @@ rules:
     backend: template     # template = deterministic demo OCR (no deps);
                           # easyocr = deep OCR for real plates (pip install easyocr)
 
+# ---- Phase 8 M2: multi-camera sources ----
+# Each entry is an independent pipeline (own detector + rules engine + recorder).
+# Evidence is tagged with the camera id and the live wall / evidence search can
+# filter per camera. Leave the list empty to run the single --source setup.
+cameras:
+  - id: CAM-01
+    name: Synthetic Plaza
+    source: blob          # blob | video file | camera index | rtsp://...
+    detector: auto
+  - id: CAM-02
+    name: Synthetic Server Room
+    source: blob
+    detector: auto
+
 # ---- Phase 3: backend & evidence ----
 backend:
   host: 127.0.0.1

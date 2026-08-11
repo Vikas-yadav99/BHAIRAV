@@ -143,46 +143,79 @@ class LiveHub:
 
     def __init__(self, max_clients: int = 64):
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._subscribers: set[asyncio.Queue] = set()
+        self._subscribers: set[asyncio.Queue] = set()   # "all cameras" clients
+        self._channels: dict[str, set[asyncio.Queue]] = {}  # per-camera clients
         self._max_clients = max_clients
 
     # ---- sync side (pipeline thread) --------------------------------------
     def publish_frame(self, frame_id: int, timestamp: float, jpeg_b64: str,
-                      tracks: list[dict], poses: list[dict], alerts: list[dict]) -> None:
-        msg = {"type": "frame", "frame_id": frame_id, "ts": timestamp,
-               "jpeg": jpeg_b64, "tracks": tracks, "poses": poses, "alerts": alerts}
-        self._publish(msg)
+                      tracks: list[dict], poses: list[dict], alerts: list[dict],
+                      camera: str | None = None) -> None:
+        # Phase 8 M2: frames are camera-scoped; alerts (publish_alert) are
+        # broadcast to every client regardless of the camera they watch.
+        msg = {"type": "frame", "camera": camera or "", "frame_id": frame_id,
+               "ts": timestamp, "jpeg": jpeg_b64, "tracks": tracks,
+               "poses": poses, "alerts": alerts}
+        self._publish(msg, channel=camera)
 
     def publish_alert(self, alert: dict) -> None:
-        self._publish({"type": "alert", "alert": alert})
+        # alerts are global: every client gets them, whatever camera they watch
+        self._broadcast({"type": "alert", "alert": alert})
 
-    def _publish(self, msg: dict) -> None:
-        if self._loop is None or not self._subscribers:
+    def _broadcast(self, msg: dict) -> None:
+        if self._loop is None or (not self._subscribers and not self._channels):
             return
-        asyncio.run_coroutine_threadsafe(self._fanout(msg), self._loop)
+        asyncio.run_coroutine_threadsafe(self._fanout_all(msg), self._loop)
 
-    async def _fanout(self, msg: dict) -> None:
-        for q in list(self._subscribers):
+    async def _fanout_all(self, msg: dict) -> None:
+        targets = set(self._subscribers)
+        for ch in self._channels.values():
+            targets |= ch
+        for q in targets:
+            try:
+                q.put_nowait(msg)
+            except asyncio.QueueFull:
+                pass
+
+    def _publish(self, msg: dict, channel: str | None = None) -> None:
+        if self._loop is None or (not self._subscribers and not self._channels):
+            return
+        asyncio.run_coroutine_threadsafe(self._fanout(msg, channel), self._loop)
+
+    async def _fanout(self, msg: dict, channel: str | None = None) -> None:
+        targets = set(self._subscribers)
+        if channel:
+            targets |= self._channels.get(channel, set())
+        for q in targets:
             try:
                 q.put_nowait(msg)
             except asyncio.QueueFull:
                 pass
 
     # ---- async side (server) ----------------------------------------------
-    async def subscribe(self) -> asyncio.Queue:
+    async def subscribe(self, camera: str | None = None) -> asyncio.Queue:
         if self._loop is None:
             # first subscriber runs inside the server's event loop
             self._loop = asyncio.get_running_loop()
         q: asyncio.Queue = asyncio.Queue(maxsize=256)
-        self._subscribers.add(q)
+        if camera:
+            self._channels.setdefault(camera, set()).add(q)
+        else:
+            self._subscribers.add(q)
         return q
 
-    def unsubscribe(self, q: asyncio.Queue) -> None:
-        self._subscribers.discard(q)
+    def unsubscribe(self, q: asyncio.Queue, camera: str | None = None) -> None:
+        if camera:
+            ch = self._channels.get(camera)
+            if ch:
+                ch.discard(q)
+        else:
+            self._subscribers.discard(q)
 
     @property
     def client_count(self) -> int:
-        return len(self._subscribers)
+        return (len(self._subscribers)
+                + sum(len(c) for c in self._channels.values()))
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +297,8 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
                webhook_url: str | None = None,
                login_limiter: RateLimiter | None = None,
                face: dict | None = None,
-               plates: "PlateRegistry | None" = None) -> Any:
+               plates: "PlateRegistry | None" = None,
+               cameras: list[dict] | None = None) -> Any:
     """Build the FastAPI application. Imports fastapi lazily."""
     try:
         from fastapi import (Body, Depends, FastAPI, HTTPException, Query,
@@ -374,6 +408,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
                        "entries": len(audit.read())},
             "users": users.count(),
             "webhook": bool(webhook_url),
+            "cameras": cameras or [],
         }
 
     # ---- users (admin) ----------------------------------------------------
@@ -430,17 +465,21 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
     @app.get("/api/evidence")
     def search_evidence(claims: dict = Depends(require(PERM_EVIDENCE_READ)),
                         rule: str | None = None, severity: str | None = None,
-                        q: str | None = None, t0: float | None = None,
-                        t1: float | None = None, limit: int = Query(50, le=200)):
-        rows = store.search(rule=rule, severity=severity, q=q, t0=t0, t1=t1, limit=limit)
+                        camera: str | None = None, q: str | None = None,
+                        t0: float | None = None, t1: float | None = None,
+                        limit: int = Query(50, le=200)):
+        rows = store.search(rule=rule, severity=severity, camera=camera,
+                            q=q, t0=t0, t1=t1, limit=limit)
         return {"total": len(rows), "events": [r.to_dict() for r in rows]}
 
     @app.get("/api/evidence/export")
     def export_evidence(claims: dict = Depends(require(PERM_EVIDENCE_EXPORT)),
                         rule: str | None = None, severity: str | None = None,
-                        q: str | None = None, t0: float | None = None,
-                        t1: float | None = None, limit: int = Query(200, le=500)):
-        rows = store.search(rule=rule, severity=severity, q=q, t0=t0, t1=t1, limit=limit)
+                        camera: str | None = None, q: str | None = None,
+                        t0: float | None = None, t1: float | None = None,
+                        limit: int = Query(200, le=500)):
+        rows = store.search(rule=rule, severity=severity, camera=camera,
+                            q=q, t0=t0, t1=t1, limit=limit)
         zip_bytes = store.export_zip(rows)
         audit.append(claims["sub"], "export_evidence", f"count={len(rows)}")
         return Response(content=zip_bytes, media_type="application/zip",
@@ -655,8 +694,10 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
             await websocket.close(code=4401, reason="unauthorized")
             return
         await websocket.accept()
-        q = await hub.subscribe()
-        audit.append(claims["sub"], "ws_connect", "live-stream")
+        camera = (websocket.query_params.get("camera") or "").strip() or None
+        q = await hub.subscribe(camera)
+        audit.append(claims["sub"], "ws_connect",
+                     f"live-stream camera={camera or 'all'}")
         try:
             while True:
                 # drain queued messages; heartbeat if idle >5s
@@ -668,7 +709,8 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         except WebSocketDisconnect:
             pass
         finally:
-            hub.unsubscribe(q)
-            audit.append(claims["sub"], "ws_disconnect", "live-stream")
+            hub.unsubscribe(q, camera)
+            audit.append(claims["sub"], "ws_disconnect",
+                         f"live-stream camera={camera or 'all'}")
 
     return app

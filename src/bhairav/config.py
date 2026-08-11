@@ -55,6 +55,7 @@ DEFAULTS: dict = {
         "webhook_url": None,  # POST red alerts here (Slack-style); None disables
         "db": None,           # Phase 8: PostgreSQL URL (postgresql://...) or None = file store
     },
+    "cameras": [],  # Phase 8 M2: multi-camera sources; empty = single --source
     "evidence": {
         "dir": "output/evidence",
         "camera": "CAM-01",
@@ -169,6 +170,28 @@ class EvidenceConfig:
 
 
 @dataclass
+class CameraConfig:
+    """A named video source in the multi-camera setup (Phase 8 / M2).
+
+    `source`/`detector` mirror the single-camera CLI flags; when the
+    `cameras` list is empty, serve.py falls back to --source with the
+    `evidence.camera` id, so existing single-camera setups keep working.
+    """
+
+    id: str = "CAM-01"
+    name: str = "Synthetic Plaza"
+    source: str = "blob"          # blob | file path | camera index | rtsp://...
+    detector: str = "auto"        # blob | yolo | auto
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CameraConfig":
+        return cls(id=str(d.get("id", "CAM-01")),
+                   name=str(d.get("name", d.get("id", "CAM-01"))),
+                   source=str(d.get("source", "blob")),
+                   detector=str(d.get("detector", "auto")))
+
+
+@dataclass
 class AppConfig:
     detector: str = "blob"  # blob | yolo | auto
     model: ModelConfig = field(default_factory=ModelConfig)
@@ -178,6 +201,7 @@ class AppConfig:
     rules: dict = field(default_factory=dict)
     backend: BackendConfig = field(default_factory=BackendConfig)
     evidence: EvidenceConfig = field(default_factory=EvidenceConfig)
+    cameras: list[CameraConfig] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: dict) -> "AppConfig":
@@ -192,7 +216,8 @@ class AppConfig:
                    zones=zones,
                    rules=dict(d.get("rules", {})),
                    backend=BackendConfig.from_dict(d.get("backend", {})),
-                   evidence=EvidenceConfig.from_dict(d.get("evidence", {})))
+                   evidence=EvidenceConfig.from_dict(d.get("evidence", {})),
+                   cameras=[CameraConfig.from_dict(c) for c in d.get("cameras", [])])
 
 
 def load_config(path: str | Path = "config.yaml") -> AppConfig:

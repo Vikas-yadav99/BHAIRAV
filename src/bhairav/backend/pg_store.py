@@ -229,7 +229,7 @@ class PostgresEvidenceStore:
             "start_ts": event.first_ts,
             "end_ts": event.last_ts,
             "frame_count": len(frames),
-            "camera": self.camera,
+            "camera": event.camera or self.camera,
             "created": now,
             "blurred": self.blur_faces,
             "encrypted": self.encrypt,
