@@ -152,6 +152,10 @@ class SyntheticPoseModel:
         return out
 
     def _skeleton(self, sp) -> list[Keypoint] | None:
+        # Phase 10: vehicles and baggage get no skeleton (a walking stick
+        # figure on a car/suitcase is noise, not pose).
+        if sp.person.size in ("vehicle", "baggage"):
+            return None
         role = sp.person.role
         t = self._t
         phase = sp.person.jitter_phase

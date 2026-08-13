@@ -386,3 +386,103 @@ def test_webhook_notify_no_url_is_noop():
     from bhairav.backend.server import webhook_notify
     webhook_notify(None, {"rule": "x"})  # must not raise
     webhook_notify("", {"rule": "x"})
+
+
+# ---------- Phase 10 M4: field-officer dispatch feed + endpoints ----------
+
+def _app_with_notifier(tmp_path, notifier):
+    from bhairav.backend.audit import AuditLog
+    from bhairav.backend.evidence import EvidenceStore
+    from bhairav.backend.server import LiveHub, PipelineStats, create_app
+    from bhairav.backend.users import UserStore
+    store = EvidenceStore(tmp_path / "evidence", camera="CAM-01", fps=10.0,
+                          blur_faces=False)
+    audit = AuditLog(tmp_path / "audit.jsonl")
+    app = create_app(store, audit, secret="test-secret", hub=LiveHub(),
+                     users=UserStore(tmp_path / "users.json"),
+                     stats=PipelineStats(), notifier=notifier)
+    return TestClient(app)
+
+
+def test_ws_field_receives_alerts_only(app_ctx):
+    client = app_ctx["client"]
+    tok = _login(client, "police", "police123")
+    with client.websocket_connect(f"/ws/field?token={tok}") as ws:
+        alert = {"rule": "riot", "severity": "red", "message": "RIOT in plaza",
+                 "camera": "CAM-01", "zone": "plaza", "timestamp": 1.0,
+                 "track_id": 5, "frame_id": 60, "confidence": 0.9, "details": {}}
+        app_ctx["hub"].publish_field_alert(alert)
+        msg = ws.receive_json()
+        assert msg["type"] == "alert"
+        assert msg["alert"]["rule"] == "riot"
+
+
+def test_ws_field_isolated_from_live_wall(app_ctx):
+    """Field alerts must NOT leak into the /ws/stream live wall (and vice
+    versa): publish a field alert + a wall frame, then check each feed got
+    exactly its own message."""
+    client = app_ctx["client"]
+    tok = _login(client, "police", "police123")
+    with client.websocket_connect(f"/ws/field?token={tok}") as field_ws:
+        with client.websocket_connect(f"/ws/stream?token={tok}") as wall_ws:
+            alert = {"rule": "riot", "severity": "red", "message": "RIOT",
+                     "timestamp": 1.0, "track_id": 5, "frame_id": 60,
+                     "confidence": 0.9, "details": {}, "zone": None,
+                     "camera": "CAM-01"}
+            app_ctx["hub"].publish_field_alert(alert)
+            app_ctx["hub"].publish_frame(frame_id=1, timestamp=0.5,
+                                         jpeg_b64="AAAA", tracks=[], poses=[],
+                                         alerts=[])
+            fmsg = field_ws.receive_json()
+            assert fmsg["type"] == "alert" and fmsg["alert"]["rule"] == "riot"
+            wmsg = wall_ws.receive_json()
+            assert wmsg["type"] == "frame" and wmsg["frame_id"] == 1
+            # drain the wall feed until its heartbeat ping: the field alert
+            # (rule "riot") must never appear on the live wall
+            got_ping = False
+            for _ in range(6):
+                m = wall_ws.receive_json()
+                assert not (m["type"] == "alert" and m["alert"]["rule"] == "riot"),                     "field alert leaked onto the live wall"
+                if m["type"] == "ping":
+                    got_ping = True
+                    break
+            assert got_ping
+
+
+def test_ws_field_rejects_bad_token(app_ctx):
+    client = app_ctx["client"]
+    from starlette.websockets import WebSocketDisconnect
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/ws/field?token=garbage") as ws:
+            ws.receive_json()
+
+
+def test_dispatch_endpoints_404_without_channels(app_ctx):
+    client = app_ctx["client"]
+    tok = _login(client, "admin", "admin123")
+    assert client.get("/api/dispatch/channels",
+                      headers={"Authorization": f"Bearer {tok}"}).status_code == 404
+    assert client.post("/api/dispatch/test",
+                       headers={"Authorization": f"Bearer {tok}"}).status_code == 404
+
+
+def test_dispatch_channels_and_test_ping(tmp_path):
+    from bhairav.backend.notify import AlertNotifier
+    notifier = AlertNotifier([{"name": "slack", "url": "http://127.0.0.1:1",
+                               "min_severity": "orange", "retries": 0}])
+    client = _app_with_notifier(tmp_path, notifier)
+    tok = _login(client, "admin", "admin123")
+    h = {"Authorization": f"Bearer {tok}"}
+    r = client.get("/api/dispatch/channels", headers=h)
+    assert r.status_code == 200
+    channels = r.json()["channels"]
+    assert [c["name"] for c in channels] == ["slack"]
+    assert channels[0]["min_severity"] == "orange"
+    assert client.post("/api/dispatch/test", headers=h).json()["tested"] is True
+    # the synthetic alert was queued to the channel
+    assert client.get("/api/dispatch/channels", headers=h).json()["channels"][0]["delivered"] >= 1
+    # a viewer must NOT reach the admin-only endpoints
+    vtok = _login(client, "viewer", "viewer123")
+    assert client.get("/api/dispatch/channels",
+                      headers={"Authorization": f"Bearer {vtok}"}).status_code == 403
+

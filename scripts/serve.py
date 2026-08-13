@@ -111,7 +111,7 @@ class CameraStatsGroup:
 
 def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,
                webhook_url, recent_alerts, plates, reid=None,
-               public_token: str | None = None):
+               public_token: str | None = None, notifier=None):
     """One camera pipeline loop on a background thread.
 
     Each camera gets an independent detector + rules engine (track ids from
@@ -168,6 +168,14 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,
             del recent_alerts[:-cfg.backend.max_recent_alerts]  # bounded rolling feed
             if a.severity.value == "red":
                 webhook_notify(webhook_url, ad)
+            # Phase 10 M4: field-officer dispatch (channels filter internally).
+            # An alert that a channel accepted also goes to the /ws/field
+            # push feed (police+), so officers see exactly what is dispatched.
+            try:
+                if notifier is not None and notifier.notify(ad):
+                    hub.publish_field_alert(ad)
+            except Exception as exc:
+                print(f"[{cam.id}] dispatch error: {exc}", flush=True)
         # close events that have gone quiet (respects post_sec)
                 # person re-id: fold this frame's person tracks into the shared gallery
         try:
@@ -330,6 +338,11 @@ def main() -> int:
     for cam, st in per_cam:
         stats.add(cam.id, cam.name, st)
     webhook_url = cfg.backend.webhook_url
+    from bhairav.backend.notify import channels_from_config
+    notifier = channels_from_config(webhook_url, cfg.backend.alert_channels)
+    if notifier:
+        print(f"[dispatch] field-officer alert channels: "
+              f"{', '.join(ch['name'] for ch in notifier.stats())}")
     hub = LiveHub()
     recent_alerts: list[dict] = []
 
@@ -457,14 +470,15 @@ def main() -> int:
                      ready_check=ready_check, db_metrics_provider=_db_metrics,
                      metrics_token=os.environ.get("BHAIRAV_METRICS_TOKEN"),
                      reid=reid_svc,
-                     public_token=public_token or None)
+                     public_token=public_token or None,
+                     notifier=notifier or None)
 
     # run one pipeline thread per camera
     for cam, st in per_cam:
         t = threading.Thread(target=run_stream,
                              args=(cfg, cam, hub, store, evidence_dir, stop, st,
                                    webhook_url, recent_alerts, plates,
-                                   reid_svc, public_token),
+                                   reid_svc, public_token, notifier or None),
                              daemon=True)
         t.start()
 
@@ -484,6 +498,7 @@ def main() -> int:
     if os.environ.get("BHAIRAV_METRICS_TOKEN"):
         print("[ops] /metrics scrape token: ENABLED (BHAIRAV_METRICS_TOKEN)")
     print(f"Live stream: {scheme.replace('https', 'wss').replace('http', 'ws')}://{host}:{port}/ws/stream?token=<token>&camera=<CAM-ID>")
+    print(f"Field dispatch: {scheme.replace('https', 'wss').replace('http', 'ws')}://{host}:{port}/ws/field?token=<token> (police+)")
     if public_token:
         print(f"[public] read-only blurred monitor: {scheme}://{host}:{port}/?public={public_token}")
     print("[security] login rate limit: 10/min per IP; change defaults via config")

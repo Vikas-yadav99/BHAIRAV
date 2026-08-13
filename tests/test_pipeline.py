@@ -57,7 +57,9 @@ def test_detector_frames_are_valid_images_with_poses():
     assert state.frame is not None
     assert state.frame.shape == (cfg.synthetic.height, cfg.synthetic.width, 3)
     assert state.frame.dtype == np.uint8
-    assert len(state.poses) == len(state.tracks)        # Phase 2: a skeleton per track
+    # Phase 2: a skeleton per person; vehicles/baggage (Phase 10) have no skeleton
+    persons = [t for t in state.tracks if t.is_person]
+    assert len(state.poses) == len(persons)
     assert all(len(p.keypoints) == 17 for p in state.poses)
 
 

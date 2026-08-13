@@ -14,7 +14,7 @@ model:
 synthetic:
   fps: 15
   seed: 7
-  duration_sec: 24.0
+  duration_sec: 32.0
   width: 1280
   height: 720
 
@@ -91,6 +91,33 @@ rules:
     backend: template     # template = deterministic demo OCR (no deps);
                           # easyocr = deep OCR for real plates (pip install easyocr)
 
+  # ---- Phase 10: proactive scene intelligence ----
+  abandoned_object:
+    enabled: true
+    severity: orange      # unattended bag/suitcase in a monitored zone
+    escalate: true        # 2x abandon_sec escalates orange -> red
+    classes: [28]         # COCO: 24 backpack, 26 handbag, 28 suitcase
+    abandon_sec: 8.0      # how long it must sit still + unattended
+    owner_dist_norm: 0.06 # nearest person farther than this = unattended
+    still_speed_norm: 0.02 # below this per-step speed the object counts as still
+  accident:
+    enabled: true
+    severity: red         # vehicle hard-stops next to a downed/motionless person
+    cruise_speed_norm: 0.06  # the vehicle was moving at least this fast
+    still_speed_norm: 0.02   # ...and is now (nearly) stopped
+    impact_dist_norm: 0.10   # victim within this distance of the vehicle
+    confirm_sec: 1.2         # sustained before alerting
+    down_aspect: 1.0         # victim bbox h/w below this counts as lying down
+    lookback_sec: 4.0        # "was moving" memory after the stop
+  riot:
+    enabled: true
+    severity: red         # dense, agitated (high speed + erratic) person cluster
+    min_people: 4
+    cluster_radius_norm: 0.10  # all members within this of the cluster centroid
+    speed_norm: 0.04           # mean per-step speed (x frame height / s)
+    wobble_deg: 20.0           # mean heading wobble (erratic motion)
+    duration_sec: 4.5          # sustained before alerting
+
 # ---- Phase 8 M2: multi-camera sources ----
 # Each entry is an independent pipeline (own detector + rules engine + recorder).
 # Evidence is tagged with the camera id and the live wall / evidence search can
@@ -117,6 +144,16 @@ backend:
                                 # or $BHAIRAV_DB_URL / --db-url; null = file-based evidence store
   public_token: null            # Phase 9 M5: read-only blurred public monitor.
                                 # Set a token (or $BHAIRAV_PUBLIC_TOKEN) to enable /?public=<token>
+  # Phase 10 M4 - field-officer alert channels. Each channel fans out matching
+  # alerts to a webhook endpoint (Slack/Telegram/SMS gateway) with retries +
+  # exponential backoff; min_severity and rules filter what it receives.
+  # Leave empty (and webhook_url null) to disable outbound delivery entirely.
+  alert_channels:
+    # - name: field-officers
+    #   url: https://hooks.slack.com/services/...   # or your SMS/Telegram gateway
+    #   min_severity: orange                         # orange+ by default
+    #   rules: []                                    # empty = all rules
+    #   retries: 2                                   # retries with backoff
 
 # Phase 9 M4 - person re-identification across cameras
 reid:

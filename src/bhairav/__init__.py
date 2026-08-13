@@ -14,5 +14,10 @@ Phase 7: Camera sources & deployment - RTSP/RTMP/webcam with reconnect,
 Phase 8: Scale-out - PostgreSQL evidence/audit/users/plate stores, multi-camera
          pipelines with per-camera WS channels, HA replicas behind nginx, and
          the offline natural-language Investigation Assistant.
+Phase 9: Validation & ops - real-footage harness, CI, PG backups + metrics,
+         person re-id across cameras, police + public read-only dashboards.
+Phase 10: Proactive scene intelligence - abandoned-object / accident / riot
+         detection, and live field-officer dispatch (filtered webhook channels
+         with retries + a push-only /ws/field feed).
 """
-__version__ = "0.9.0"
+__version__ = "0.10.0"

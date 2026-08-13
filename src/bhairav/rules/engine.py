@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 from ..backend.anpr import StolenVehicleRule
+from ..behavior.accident import AccidentRule
 from ..behavior.anomaly import AnomalyRule
 from ..behavior.chase import ChaseRule
 from ..behavior.fall import FallRule
 from ..behavior.fight import FightRule
+from ..behavior.riot import RiotRule
 from ..behavior.trespass import TrespassRule
 from ..types import Alert, FrameState, Zone
+from .abandoned_object import AbandonedObjectRule
 from .base import Rule
 from .crowd_density import CrowdDensityRule
 from .loitering import LoiteringRule
@@ -29,6 +32,10 @@ RULES: list[tuple[str, type]] = [
     ("anomaly", AnomalyRule),
     # Phase 6 - vehicle watchlist (ANPR)
     ("stolen_vehicle", StolenVehicleRule),
+    # Phase 10 - proactive scene intelligence
+    ("abandoned_object", AbandonedObjectRule),
+    ("accident", AccidentRule),
+    ("riot", RiotRule),
 ]
 
 

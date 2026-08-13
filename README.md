@@ -1,4 +1,4 @@
-# BHAIRAV — Phase 9: Validation, CI, Ops, Re-ID & Read-Only Dashboards
+# BHAIRAV — Phase 10: Scene Hazards, Riot Detection & Field-Officer Dispatch
 
 **B**ehavioral **H**azard **A**nalysis & **I**ntelligent **R**eal-time **A**ction **V**igilance
 
@@ -24,6 +24,18 @@ reconnect + backoff and feed health in `/api/status`), an **EasyOCR backend**
 for reading *real* license plates (with an evaluation script), a **pinned,
 CVE-scanned dependency manifest** (pip-audit clean), a CI workflow, and
 **Docker + nginx + TLS deployment configs** under `deploy/`.
+Phase 8 added PostgreSQL scale-out, multi-camera pipelines, HA
+and the offline Investigation Assistant; Phase 9 added a
+real-footage validation harness, CI, backups + Prometheus
+metrics, person re-identification and read-only police / public
+dashboards; Phase 10 adds **abandoned-object / accident / riot
+detection** (12 rules total, verified end-to-end on the 32 s
+scene) and **live alerting to field officers**: an
+`AlertNotifier` fans red/orange alerts out to per-channel
+webhook endpoints (severity + rule filters, bounded queues,
+exponential-backoff retries, never blocks the pipeline), a
+push-only `/ws/field` feed for officers in the field, and a
+Dispatch tab in the dashboard.
 
 > Phase 0 (Python → NumPy → OpenCV → YOLO) is the learning track, done in parallel.
 > When you finish it, install `ultralytics` and the exact same pipeline runs on real
@@ -52,7 +64,7 @@ python scripts/serve.py
 Run the tests:
 
 ```bash
-python -m pytest -q                  # 163 tests (Phases 1-7)
+python -m pytest -q                  # 273 tests (Phases 1-10; 28 PG-gated skips)
 ```
 
 ### Face search, ANPR and models
@@ -105,6 +117,9 @@ adds `pip install ultralytics mediapipe`, and reading *real* plates well adds
 | `/api/users/{u}/lock` | POST | users | admin: lock / unlock (revokes live tokens) |
 | `/api/users/{u}/password` | POST | users | admin: reset password |
 | `/ws/stream?token=` | WS | stream | live frames + alerts |
+| `/ws/field?token=` | WS | alerts | push-only field-officer alert feed (no frames) |
+| `/api/dispatch/channels` | GET | users | alert-channel status (sent/failed/dropped, last error) |
+| `/api/dispatch/test` | POST | users | send a synthetic test alert to every channel (audited) |
 
 Roles: `viewer` < `operator` < `analyst` < `admin` (see `src/bhairav/backend/rbac.py`).
 
@@ -159,7 +174,7 @@ curl -s -X POST localhost:8000/auth/login -H "Content-Type: application/json"   
 
 Live server smoke test (what I verified end-to-end):
 login -> evidence search -> viewer denied clip download (403) -> admin 200 ->
-audit chain intact -> WebSocket received live frames (13 tracks + 13 skeletons)
+audit chain intact -> WebSocket received live frames (15 tracks + 14 skeletons)
 and alerts (chase escalation, zone crossing, trespass, loitering).
 
 ## Phase 4-7 - Dashboard (`dashboard/index.html`)
@@ -193,6 +208,11 @@ from the Phase 3 server, so `python scripts/serve.py` is a complete product:
   stolen-vehicle watchlist and any subsequent read raises a red
   **STOLEN-VEHICLE** alert (rule `stolen_vehicle`), captures evidence, and
   badges the read in the UI.
+- **Dispatch** - the Phase 10 field-officer view: a live `/ws/field`
+  alert push (rule, severity, camera, zone, message - no heavy frames,
+  so a mobile client stays light), the recent dispatch feed, and
+  per-channel delivery health; admins can fire a test ping to verify
+  an endpoint end-to-end.
 
 Role gating is enforced **twice**: the UI hides what the role can't do (Audit
 / Users tabs, status changes, download / export buttons) *and* the API returns
@@ -243,21 +263,25 @@ Verified end-to-end: the demo scene renders a vehicle with plate
 `MH12AB1234`; the reader OCRs it with 100% accuracy across all 133 frames of
 the clip, and adding it to the watchlist fires the alert live.
 
-## What fires in the demo scene (24 s, deterministic)
+## What fires in the demo scene (32 s, deterministic)
 
 | Time | Alert | Why |
 |------|-------|-----|
+| ~0.4 s | 🔴 STOLEN-VEHICLE `MH12AB1234` | ANPR read matches the watchlist |
 | ~2.1 s | 🟠 CHASE #13 pursuing #12 | runner fleeing + follower aligned → escalates 🔴 ~4.1 s |
 | ~3.0 s | 🟡 ANOMALY in `plaza` | 3 people vs learned baseline 0.1±0.4 (amber flag) |
 | ~3.3 s | 🟠 Crowd of 4+ in `plaza` | crowd-density threshold |
 | ~4.4 s | 🔴 `person #2` in `server_room` | restricted-zone crossing |
 | ~5.9 s | 🔴 FIGHT #10 vs #11 | close pair, high speed, erratic wobble |
 | ~6.9 s | 🟠 TRESPASS #2 in `server_room` | dwell > 2.5 s → escalates 🔴 ~9.4 s |
-| ~7.7 s | 🟡 Loitering 5 s | monitored-zone dwell |
-| ~12.5 s | 🟠 FALL track #9 | vy spike + bbox flattens → 🔴 when stays down |
+| ~7.7 s | 🟡 Loitering 5 s | monitored-zone dwell → escalates 🟠 ~12.7 s |
+| ~9.7 s | 🔴 ACCIDENT #16 vs #15 | car braked hard next to a pedestrian who then lies flat → FALL 🟠 ~10.2 s → 🔴 ~10.7 s |
+| ~14.3 s | 🟠 Unattended suitcase #17 | baggage still in `plaza`, owner walked away → 🔴 ~22.9 s |
+| ~21.1 s | 🔴 RIOT in `plaza` | 4-person agitated cluster (high mean speed + wobble, 4.5 s) |
 
 Every alert carries a **confidence score** (0–1) and rich `details`, logged to
-`output/alerts.jsonl`.
+`output/alerts.jsonl`. The scene exercises **all 12 rules** with zero false
+positives, so a full demo run proves every detector path end-to-end.
 
 ## The Phase 2 behavior layer
 
@@ -274,8 +298,10 @@ src/bhairav/
 │   ├── fight.py            # close pair, both moving, erratic wobble (red)
 │   ├── chase.py            # follower pursues a fleeing runner (orange → red)
 │   ├── trespass.py         # dwell inside restricted zone (orange → red)
-│   └── anomaly.py          # learned-normal baseline, z-score outliers (yellow)
-├── rules/               # + 5 new rules registered in the engine
+│   ├── anomaly.py          # learned-normal baseline, z-score outliers (yellow)
+│   ├── accident.py         # vehicle hard-stop near a person who goes down (red)
+│   └── riot.py             # agitated person cluster: speed + wobble + count (red)
+├── rules/               # + zone_crossing / abandoned_object among the 12 registered rules
 ├── detectors/scenario.py   # actors now carry roles: walk / stand / fall / fight / chase
 └── viz.py                  # + skeleton stick-figures, behavior tags/links
 ```
@@ -363,9 +389,9 @@ as with any landmarker.
 - ✅ Phase 5: real user accounts (PBKDF2), evidence workflow (status / notes /
      ZIP export), ops Status page, clip playback, webhook notifications,
      token revocation on lock, brute-force lockout, hash-free API responses
-- ✅ 163 passing tests (geometry, tracker, rules, classifiers, pose, privacy,
+- ✅ 273 passing tests (geometry, tracker, rules, classifiers, pose, privacy,
      evidence, RBAC/audit, users, server incl. dashboard route, hardening,
-     face search, ANPR, camera sources)
+     face search, ANPR, camera sources, re-ID, dispatch, phase-10 rules)
 
 ## Phase 5 - what was added and why
 
@@ -530,5 +556,10 @@ python scripts/serve.py --source blob
 
 ## Next: the wider roadmap
 
-Abandoned-object / accident / riot detection, person search by physical
-description (clothing color, height), and live alerting to field officers.
+Phase 10 shipped abandoned-object / accident / riot detection and live
+field-officer dispatch. Appearance-based person search (clothing color /
+height) is covered by the Phase 9 Re-ID tab. Natural next milestones:
+**audio analytics** (gunshot / glass-break / scream detection, alert fusion
+with vision), **predictive analytics** (crowd build-up forecasting, hotspot
+heatmaps), and **on-device edge agents** (a lightweight BHAIRAV box that runs
+a camera locally and reports only alerts upstream).

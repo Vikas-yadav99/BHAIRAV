@@ -146,6 +146,7 @@ class LiveHub:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._subscribers: set[asyncio.Queue] = set()   # "all cameras" clients
         self._channels: dict[str, set[asyncio.Queue]] = {}  # per-camera clients
+        self._field: set[asyncio.Queue] = set()  # Phase 10 M4: field-dispatch clients
         self._max_clients = max_clients
 
     # ---- sync side (pipeline thread) --------------------------------------
@@ -162,6 +163,24 @@ class LiveHub:
     def publish_alert(self, alert: dict) -> None:
         # alerts are global: every client gets them, whatever camera they watch
         self._broadcast({"type": "alert", "alert": alert})
+
+    def publish_field_alert(self, alert: dict) -> None:
+        """Phase 10 M4: push an alert ONLY to field-dispatch clients.
+
+        Delivered to /ws/field subscribers (police+) and never to the live
+        wall, keeping the dispatch feed light and focused on actions.
+        """
+        if self._loop is None or not self._field:
+            return
+        msg = {"type": "alert", "alert": alert}
+        asyncio.run_coroutine_threadsafe(self._fanout_field(msg), self._loop)
+
+    async def _fanout_field(self, msg: dict) -> None:
+        for q in self._field:
+            try:
+                q.put_nowait(msg)
+            except asyncio.QueueFull:
+                pass
 
     def publish_public_frame(self, frame_id: int, timestamp: float,
                              jpeg_b64: str, camera: str = "__public__") -> None:
@@ -235,10 +254,22 @@ class LiveHub:
         else:
             self._subscribers.discard(q)
 
+    # Phase 10 M4: field-dispatch clients receive only alert pushes
+    async def subscribe_field(self) -> asyncio.Queue:
+        if self._loop is None:
+            self._loop = asyncio.get_running_loop()
+        q: asyncio.Queue = asyncio.Queue(maxsize=256)
+        self._field.add(q)
+        return q
+
+    def unsubscribe_field(self, q: asyncio.Queue) -> None:
+        self._field.discard(q)
+
     @property
     def client_count(self) -> int:
         return (len(self._subscribers)
-                + sum(len(c) for c in self._channels.values()))
+                + sum(len(c) for c in self._channels.values())
+                + len(self._field))
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +360,8 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
                db_metrics_provider=None,
                metrics_token: str | None = None,
                reid=None,
-               public_token: str | None = None) -> Any:
+               public_token: str | None = None,
+               notifier=None) -> Any:
     """Build the FastAPI application. Imports fastapi lazily."""
     try:
         from fastapi import (Body, Depends, FastAPI, HTTPException, Query,
@@ -353,7 +385,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         if cl and cl.isdigit() and int(cl) > MAX_JSON_BODY_BYTES:
             raise HTTPException(status_code=413, detail="request body too large")
 
-    app = FastAPI(title="BHAIRAV - Evidence & Live API", version="8.0.0")
+    app = FastAPI(title="BHAIRAV - Evidence & Live API", version="10.0.0")
     app.add_middleware(_BodyLimitMiddleware, max_bytes=MAX_JSON_BODY_BYTES)
 
     # Phase 4: serve the React dashboard (dashboard/index.html) from the repo.
@@ -421,7 +453,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
 
     @app.get("/health")
     def health():
-        return {"status": "ok", "service": "bhairav-phase8",
+        return {"status": "ok", "service": "bhairav-phase10",
                 "time": round(time.time(), 3), "clients": hub.client_count}
 
     @app.get("/ready")
@@ -441,7 +473,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         counts = store.counts()
         audit_ok, problems = audit.verify()
         return {
-            "service": "bhairav", "version": "8.0.0",
+            "service": "bhairav", "version": "10.0.0",
             "time": round(time.time(), 3),
             "pipeline": stats.snapshot(),
             "clients": hub.client_count,
@@ -450,6 +482,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
                        "entries": len(audit.read())},
             "users": users.count(),
             "webhook": bool(webhook_url),
+            "dispatch": (notifier.stats() if notifier is not None else None),
             "cameras": cameras or [],
             "db": db_metrics_provider() if db_metrics_provider else None,
             "backups": ({"dir": str(backup_mgr.out_dir),
@@ -925,6 +958,57 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
     def recent_alerts(claims: dict = Depends(require(PERM_ALERTS)),
                       limit: int = Query(50, le=200)):
         return {"alerts": recent[-limit:]}
+
+    # ---- Phase 10 M4: field-officer dispatch ------------------------------
+    def _dispatch_or_404():
+        if notifier is None or not notifier:
+            raise HTTPException(status_code=404,
+                                detail="no alert channels configured "
+                                       "(backend.alert_channels)")
+        return notifier
+
+    @app.get("/api/dispatch/channels")
+    def dispatch_channels(claims: dict = Depends(require(PERM_USERS))):
+        return {"channels": _dispatch_or_404().stats()}
+
+    @app.post("/api/dispatch/test")
+    def dispatch_test(claims: dict = Depends(require(PERM_USERS))):
+        _dispatch_or_404().test()
+        audit.append(claims["sub"], "dispatch_test",
+                     "sent synthetic alert to all channels")
+        return {"tested": True}
+
+    @app.websocket("/ws/field")
+    async def ws_field(websocket: WebSocket):
+        """Push-only alert feed for field officers (police+).
+
+        Receives {"type":"alert","alert":{...}} messages with camera/rule/
+        severity details - no heavy frames - so a mobile client stays light.
+        """
+        token = (websocket.query_params.get("token") or "").strip()
+        claims = validate_token(secret, token) if token else None
+        if (claims is None or not _user_active(claims.get("sub", ""))
+                or PERM_ALERTS not in ROLE_PERMISSIONS.get(claims["role"],
+                                                           frozenset())):
+            await websocket.close(code=4401, reason="unauthorized")
+            return
+        await websocket.accept()
+        q = await hub.subscribe_field()
+        audit.append(claims["sub"], "field_dispatch_connect",
+                     "field-officer alert feed")
+        try:
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=5.0)
+                    await websocket.send_text(json.dumps(msg))
+                except asyncio.TimeoutError:
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+        except WebSocketDisconnect:
+            pass
+        finally:
+            hub.unsubscribe_field(q)
+            audit.append(claims["sub"], "field_dispatch_disconnect",
+                         "field-officer alert feed")
 
     # ---- live stream ------------------------------------------------------
     @app.websocket("/ws/stream")

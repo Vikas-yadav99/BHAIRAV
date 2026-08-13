@@ -3,11 +3,14 @@
 BHAIRAV is a behavioral video-surveillance engine: it ingests camera feeds,
 runs object detection, tracking and pose estimation, applies scenario rules
 to raise behavior alerts (intrusion, loitering, fight, fall, crowd, zone
-crossing, abandoned object and more), records pre/during/post-event
-evidence, and exposes everything through a FastAPI backend with a React
-dashboard. Phase 8 adds PostgreSQL persistence, multi-camera pipelines,
-horizontally-scalable deployment, and an offline natural-language
-investigation assistant.
+crossing, abandoned object, accident, riot and more), records
+pre/during/post-event evidence, and exposes everything through a FastAPI
+backend with a React dashboard. Phase 8 adds PostgreSQL persistence,
+multi-camera pipelines, horizontally-scalable deployment, and an
+offline natural-language investigation assistant. Phase 10 adds three
+scene-hazard rules (abandoned object, accident, riot) and live alert
+dispatch to field officers via `AlertNotifier` + a push-only `/ws/field`
+WebSocket feed.
 
 ## Repository layout
 
@@ -69,6 +72,10 @@ investigation assistant.
   appearance-based person re-identification across cameras, and
   read-only police / public dashboards with a privacy-blurred
   public live stream.
+- Phase 10: scene-hazard rules (abandoned object / accident / riot),
+  new baggage + accident-vehicle actors in the synthetic scene, and
+  field-officer alert dispatch (`backend/notify.py` AlertNotifier,
+  `/ws/field` feed, Dispatch tab).
 
 ## Phase 8 in detail
 
@@ -168,6 +175,55 @@ interface; `backend.reid` config tunes threshold / sighting throttle.
   `?public=<token>` URL renders a no-login, read-only, blurred
   monitor. The token is validated with constant-time comparison and
   the feed is intentionally unauthenticated-and-unaudited.
+
+## Phase 10 in detail
+
+### Scene-hazard rules
+
+- **abandoned_object** (`rules/abandoned_object.py`) - a baggage-class
+  track that stays still in a monitored zone while no person remains
+  nearby. The still-window and separation thresholds are normalized to
+  frame size; it escalates orange -> red the longer the bag is left.
+- **accident** (`behavior/accident.py`) - a vehicle that braked hard
+  (peak-speed memory retained while it stays stopped) next to a person
+  who then goes down (lying pose / flat bbox). Requiring the victim to be
+  down - not merely motionless - kills the false positive from two
+  stationary actors near each other.
+- **riot** (`behavior/riot.py`) - a minimum cluster of people (default 4)
+  inside a zone, all agitated (per-track mean speed and directional
+  wobble above thresholds) for a confirmation window, with an optional
+  explicit flag/destroyed-property signature in the scene.
+
+The synthetic scene gained a baggage actor (suitcase), an accident car
+that brakes beside a pedestrian who falls, and a 4-person agitated mob;
+`pose/synthetic.py` now skips vehicles and baggage (persons only), and
+the scene runs 32 s so every one of the 12 registered rules fires with
+zero false positives.
+
+### Field-officer alert dispatch (`backend/notify.py`)
+
+`AlertNotifier` fans alerts out to one or more outbound channels
+(webhook endpoints such as Slack / Telegram / an SMS gateway). Each
+channel filters by `min_severity` and an optional rule allow-list,
+delivers on its own daemon worker thread through a bounded queue (a slow
+endpoint can never stall the pipeline), and retries with exponential
+backoff. `notify()` is synchronous and non-blocking: queue-put with
+drop-oldest on full, and the alert is already in the feed + audit trail,
+so dispatch is best-effort by design. Config: `backend.alert_channels`
+in `config.yaml` (name / url / min_severity / rules / retries /
+backoff_sec); a legacy `backend.webhook_url` still maps to a single
+red-only channel.
+
+- `POST /api/dispatch/test` (admin) - enqueue a synthetic red alert to
+  every channel so an operator can verify delivery end-to-end (audited).
+- `GET /api/dispatch/channels` (admin) - per-channel stats (delivered /
+  sent / failed / dropped, last error, last sent).
+- `/ws/field?token=` (alerts permission, e.g. police+) - push-only
+  alert feed with rule / severity / camera / zone / message; no heavy
+  frames, so a mobile client stays light. Alerts are fanned out only to
+  field clients, never to the live wall.
+- Dashboard **Dispatch** tab - live `/ws/field` push, recent feed, and
+  channel health with a test-ping button (admin).
 
 ## Running and testing
 

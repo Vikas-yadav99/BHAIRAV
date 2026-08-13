@@ -60,6 +60,9 @@ class BlobDetector(Detector):
             # big enough that the 10-char plate text fits at the renderer's
             # font scale without glyphs touching (backend/anpr templates match)
             bw, bh = 0.13 * self.width, 0.060 * self.height
+        elif pose.person.size == "baggage":
+            # Phase 10: a portable object (suitcase) resting on the ground
+            bw, bh = 0.030 * self.width, 0.050 * self.height
         else:
             bw, bh = 0.034 * self.width, 0.082 * self.height
             if pose.person.role == "fall" and pose.progress > 0:
@@ -142,6 +145,17 @@ class BlobDetector(Detector):
                     cv2.putText(img, ch, (tx + sum(widths[:i]) + gap * i, ty),
                                 cv2.FONT_HERSHEY_SIMPLEX, scale,
                                 (20, 20, 24), thickness, cv2.LINE_AA)
+        elif pose.person.size == "baggage":
+            bw, bh = int(0.030 * self.width), int(0.050 * self.height)
+            # suitcase: rounded body + handle + wheels, in luggage tan
+            x1, y1 = px - bw // 2, py - bh
+            cv2.rectangle(img, (x1, y1), (x1 + bw, py), (122, 108, 92), -1)
+            cv2.rectangle(img, (x1, y1), (x1 + bw, py), (70, 62, 54), 2)
+            cv2.line(img, (px - bw // 4, y1), (px + bw // 4, y1),
+                     (70, 62, 54), 2)
+            cv2.rectangle(img, (x1 + 4, py - 6), (x1 + 8, py), (70, 62, 54), -1)
+            cv2.rectangle(img, (x1 + bw - 8, py - 6), (x1 + bw - 4, py),
+                          (70, 62, 54), -1)
         else:
             bw, bh = int(0.034 * self.width), int(0.082 * self.height)
             f = pose.progress if pose.person.role == "fall" else 0.0

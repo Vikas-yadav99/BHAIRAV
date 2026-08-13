@@ -17,7 +17,7 @@ DEFAULTS: dict = {
         "classes": [0, 2, 5, 7],
         "tracker": "bytetrack.yaml",
     },
-    "synthetic": {"fps": 15, "seed": 7, "duration_sec": 24.0, "width": 1280, "height": 720},
+    "synthetic": {"fps": 15, "seed": 7, "duration_sec": 32.0, "width": 1280, "height": 720},
     "alert": {"cooldown_sec": 10.0},
     "zones": [
         {"name": "plaza", "kind": "monitored",
@@ -44,6 +44,17 @@ DEFAULTS: dict = {
                      "min_count": 2, "warmup_frames": 45},
         # Phase 6 - ANPR / stolen-vehicle watchlist
         "stolen_vehicle": {"enabled": True, "severity": "red", "min_confidence": 0.5},
+        # Phase 10 - proactive scene intelligence
+        "abandoned_object": {"enabled": True, "severity": "orange", "escalate": True,
+                             "classes": [28], "abandon_sec": 8.0,
+                             "owner_dist_norm": 0.06, "still_speed_norm": 0.02},
+        "accident": {"enabled": True, "severity": "red",
+                     "cruise_speed_norm": 0.06, "still_speed_norm": 0.02,
+                     "impact_dist_norm": 0.10, "confirm_sec": 1.2,
+                     "down_aspect": 1.0, "lookback_sec": 4.0},
+        "riot": {"enabled": True, "severity": "red", "min_people": 4,
+                 "cluster_radius_norm": 0.10, "speed_norm": 0.04,
+                 "wobble_deg": 20.0, "duration_sec": 4.5},
     },
     # Phase 3-5 - backend & evidence
     "backend": {
@@ -109,17 +120,17 @@ class ModelConfig:
 
 @dataclass
 class SyntheticConfig:
-    """Scripted demo scene: fps, RNG seed, loop duration and frame size. The scene guarantees every Phase 1+2 alert type fires within `duration_sec`."""
+    """Scripted demo scene: fps, RNG seed, loop duration and frame size. The scene guarantees every alert type fires within `duration_sec` (32 s since Phase 10)."""
     fps: int = 15
     seed: int = 7
-    duration_sec: float = 24.0
+    duration_sec: float = 32.0
     width: int = 1280
     height: int = 720
 
     @classmethod
     def from_dict(cls, d: dict) -> "SyntheticConfig":
         return cls(fps=int(d.get("fps", 15)), seed=int(d.get("seed", 7)),
-                   duration_sec=float(d.get("duration_sec", 24.0)),
+                   duration_sec=float(d.get("duration_sec", 32.0)),
                    width=int(d.get("width", 1280)), height=int(d.get("height", 720)))
 
 
@@ -144,6 +155,9 @@ class BackendConfig:
     webhook_url: str | None = None
     db: str | None = None   # Phase 8: PostgreSQL URL; None = file-based store
     public_token: str | None = None  # Phase 9 M5: blurred public monitor token
+    # Phase 10 M4: field-officer alert channels (name/url/min_severity/rules/
+    # retries); `webhook_url` above is kept as a legacy single channel.
+    alert_channels: list[dict] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, d: dict) -> "BackendConfig":
@@ -154,7 +168,8 @@ class BackendConfig:
                    users_file=d.get("users_file", "output/users.json"),
                    webhook_url=d.get("webhook_url") or None,
                    db=d.get("db") or None,
-                   public_token=d.get("public_token") or None)
+                   public_token=d.get("public_token") or None,
+                   alert_channels=list(d.get("alert_channels") or []))
 
 
 @dataclass

@@ -20,7 +20,10 @@ SEVERITY_ORDER = (Severity.GREEN, Severity.YELLOW, Severity.ORANGE, Severity.RED
 # COCO class ids used by the vision model
 PERSON_CLASS_ID = 0
 VEHICLE_CLASS_IDS = {2, 5, 7}  # car, bus, truck
-COCO_NAMES = {0: "person", 1: "bicycle", 2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
+# Phase 10 - portable objects an abandoned-object rule can watch for.
+BAGGAGE_CLASS_IDS = {24, 26, 28}  # backpack, handbag, suitcase
+COCO_NAMES = {0: "person", 1: "bicycle", 2: "car", 3: "motorcycle", 5: "bus", 7: "truck",
+              24: "backpack", 26: "handbag", 28: "suitcase"}
 
 # Phase 2 - pose keypoints (COCO 17-keypoint order)
 COCO_KEYPOINT_NAMES = [

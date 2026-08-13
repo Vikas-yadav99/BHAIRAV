@@ -756,6 +756,67 @@ function AuditTab({ token }) {
   );
 }
 
+// ---------- Dispatch tab (Phase 10 M4: field-officer alert feed) ----------
+function DispatchTab({ token }) {
+  const [items, setItems] = useState([]);
+  const [status, setStatus] = useState('connecting');
+  useEffect(() => {
+    let ws, alive = true, retry = 0, timer = null;
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    function connect() {
+      ws = new WebSocket(`${proto}://${location.host}/ws/field?token=${encodeURIComponent(token)}`);
+      setStatus('connecting');
+      ws.onopen = () => { if (alive) { retry = 0; setStatus('live'); } };
+      ws.onmessage = (ev) => {
+        if (!alive) return;
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'ping') return;
+        if (msg.type === 'alert') {
+          const a = msg.alert || {};
+          const id = (a.timestamp || 0) + '|' + (a.rule || '') + '|' + (a.track_id || 0) + '|' + Math.random();
+          setItems(it => [{ ...a, _id: id }, ...it].slice(0, 120));
+        }
+      };
+      ws.onclose = () => { if (alive) { setStatus('offline'); retry++; timer = setTimeout(connect, Math.min(2000 * retry, 10000)); } };
+      ws.onerror = () => { if (alive) ws.close(); };
+    }
+    connect();
+    return () => { alive = false; if (timer) clearTimeout(timer); try { ws.close(); } catch (_) {} };
+  }, [token]);
+
+  const sevColor = s => ({ red: '#ef4444', orange: '#f97316', yellow: '#eab308', green: '#22c55e' }[s] || '#94a3b8');
+  const sevOrder = { red: 0, orange: 1, yellow: 2, green: 3 };
+  const sorted = [...items].sort((a, b) => (sevOrder[a.severity] ?? 9) - (sevOrder[b.severity] ?? 9));
+
+  return (
+    <div>
+      <div className="feed-head" style={{ display: 'flex', alignItems: 'center' }}>
+        <span>📟 Field dispatch — live alert push</span>
+        <span className="spacer" />
+        <span className="pill"><span className={'dot ' + (status === 'live' ? 'live' : 'dead')} />{status}</span>
+      </div>
+      <div className="feed" style={{ marginTop: 10 }}>
+        <div className="feed-list">
+          {items.length === 0
+            ? <div className="feed-empty">Waiting for alerts… (red/orange/yellow pushes appear here instantly)</div>
+            : sorted.map((a) => (
+                <div key={a._id} className="feed-item" style={{ borderLeft: `4px solid ${sevColor(a.severity)}` }}>
+                  <span className="sev" style={{ background: sevColor(a.severity) }} />
+                  <span className="rule">{a.rule}</span>
+                  {a.camera && <span className="muted" style={{ fontSize: 11 }}>📷 {a.camera}</span>}
+                  <span className="msg">{a.message}</span>
+                  <span className="ts">{new Date((a.timestamp || 0) * 1000).toLocaleTimeString()}</span>
+                </div>
+              ))}
+        </div>
+      </div>
+      <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+        This is the /ws/field push feed — alerts only, no video — meant for officers in the field (mobile-friendly).
+      </div>
+    </div>
+  );
+}
+
 // ---------- Status tab ----------
 function StatusTab({ token, role }) {
   const [data, setData] = useState(null);
@@ -1615,6 +1676,7 @@ function App() {
     { id: 'evidence', label: '🗂 Evidence' },
     { id: 'status', label: '📊 Status' },
   ];
+  tabs.push({ id: 'dispatch', label: '📟 Dispatch' });
   const readOnlyExtra = auth.role === 'police';
   if (auth.role === 'analyst' || auth.role === 'admin' || readOnlyExtra) tabs.push({ id: 'search', label: '🔎 Search' });
   if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'assistant', label: '🤖 Assistant' });
@@ -1642,6 +1704,7 @@ function App() {
         {tab === 'live' && <LiveTab token={auth.token} />}
         {tab === 'evidence' && <EvidenceTab token={auth.token} role={auth.role} />}
         {tab === 'status' && <StatusTab token={auth.token} role={auth.role} />}
+        {tab === 'dispatch' && <DispatchTab token={auth.token} />}
         {tab === 'assistant' && <AssistantTab token={auth.token} />}
         {tab === 'search' && <SearchTab token={auth.token} role={auth.role} />}
         {tab === 'vehicles' && <VehiclesTab token={auth.token} role={auth.role} />}
