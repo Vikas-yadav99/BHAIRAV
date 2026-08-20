@@ -76,6 +76,9 @@ WebSocket feed.
   new baggage + accident-vehicle actors in the synthetic scene, and
   field-officer alert dispatch (`backend/notify.py` AlertNotifier,
   `/ws/field` feed, Dispatch tab).
+- Phase 11: audio analytics (`audio/` package: gunshot, glass-break,
+  scream detection), deterministic synthetic audio track, and alert
+  fusion bridging audio events into the vision pipeline.
 
 ## Phase 8 in detail
 
@@ -225,6 +228,60 @@ red-only channel.
 - Dashboard **Dispatch** tab - live `/ws/field` push, recent feed, and
   channel health with a test-ping button (admin).
 
+## Phase 11 in detail
+
+### Audio analytics (`audio/` package)
+
+- **AudioAnalyzer** (`audio/analyzer.py`) - frame-by-frame, rule-based
+  audio analyzer for mono float32 PCM at a configurable sample rate
+  (default 16 kHz). Three detectors:
+
+  - **gunshot** - impulsive transient: loud onset, low spectral centroid
+    (thump), high crest factor, fast decay. Two-phase: onset detection
+    followed by RMS drop confirmation within 250 ms.
+  - **glass_break** - broadband burst: high spectral centroid + flatness,
+    followed by sustained ringing (energy stays elevated for 600 ms).
+  - **scream** - sustained vocal-band energy: mid-band (0.8-3 kHz)
+    dominance, low spectral flatness (tonal), lasting >= configurable
+    minimum duration (default 0.4 s).
+
+  Per-rule cooldown prevents re-firing. Noise floor EMA tracks ambient
+  level with a slow alpha (0.005) so sustained loud sounds don't eat the
+  dB threshold. A 30-chunk startup guard prevents spurious detections
+  before the floor stabilizes.
+
+- **SyntheticAudioTrack** (`audio/synthetic.py`) - deterministic
+  synthetic audio track for the demo scene. Places gunshot (2.0 s, 14.0 s),
+  scream (7.5 s), and glass_break (22.0 s) events at fixed timestamps
+  within the 32 s scene. Each event type has its own signal synthesis:
+  damped sinusoid + noise click (gunshot), broadband burst + high-frequency
+  ringing tail (glass_break), vibrato FM synthesis with harmonics (scream).
+
+- **AudioFusionProcessor** (`audio/fusion.py`) - bridges audio events
+  into the vision alert pipeline. `audio_events_to_alerts()` converts
+  AudioEvent objects to Alert objects. `AudioFusionProcessor` wraps an
+  analyzer + synthetic track and advances the audio stream in sync with
+  video frame ticks via `process_video_frame(frame_id, timestamp)`.
+
+### Integration
+
+Audio alerts flow through the same downstream systems as vision alerts:
+evidence recording, alert log, webhook dispatch, field-officer channels,
+and the `/ws/field` push feed. In `serve.py`, the audio processor runs
+inside each camera pipeline's `on_frame` callback. In `run_demo.py`,
+`--audio` flag enables the fusion processor.
+
+### Configuration
+
+```yaml
+audio:
+  enabled: true
+  sample_rate: 16000
+  sensitivity: 1.0     # multiplier on detection thresholds
+  cooldown_sec: 15.0   # per-rule cooldown
+  scream_min_dur_sec: 0.4
+```
+
 ## Running and testing
 
 - Dev, file stores, synthetic demo:
@@ -252,7 +309,8 @@ red-only channel.
 ## Conventions for contributors
 
 - Keep rules, detectors and behavior modules pure and deterministic; any
-  per-track state lives on the FrameState, never on the module.
+  per-track state lives on the FrameState, never on the module. Audio
+  detectors follow the same pattern (per-rule cooldown dict, not module state).
 - Every persistent store has a file twin and a PostgreSQL twin with the
   same interface; new stores must follow both.
 - Do not add heavy dependencies to pure-logic modules; heavy imports

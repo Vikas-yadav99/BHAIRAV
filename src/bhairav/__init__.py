@@ -20,4 +20,4 @@ Phase 10: Proactive scene intelligence - abandoned-object / accident / riot
          detection, and live field-officer dispatch (filtered webhook channels
          with retries + a push-only /ws/field feed).
 """
-__version__ = "0.10.0"
+__version__ = "0.11.0"

@@ -3,6 +3,7 @@
 Usage:
   python scripts/run_demo.py                          # synthetic scene, watch live
   python scripts/run_demo.py --source blob --headless # offline, no window
+  python scripts/run_demo.py --audio             # include audio analytics (Phase 11)
   python scripts/run_demo.py --source clip.mp4        # real video (needs ultralytics)
   python scripts/run_demo.py --source 0               # webcam (needs ultralytics)
 """
@@ -23,6 +24,7 @@ from bhairav.config import load_config
 from bhairav.pipeline import build_engine, make_detector, run_pipeline
 from bhairav.rules.crowd_density import count_people_in_zone
 from bhairav.viz import render
+from bhairav.audio import AudioAnalyzer, AudioFusionProcessor, SyntheticAudioTrack
 
 
 def main() -> int:
@@ -43,6 +45,19 @@ def main() -> int:
     cfg = load_config(args.config)
     engine = build_engine(cfg)
     detector = make_detector(cfg, args.detector, args.source)
+
+    # Phase 11: audio analytics setup
+    audio_fusion = None
+    if args.audio and cfg.audio.enabled:
+        _sr = cfg.audio.sample_rate
+        _analyzer = AudioAnalyzer(frame_rate=_sr, sensitivity=cfg.audio.sensitivity,
+                                  cooldown_sec=cfg.audio.cooldown_sec,
+                                  scream_min_dur_sec=cfg.audio.scream_min_dur_sec)
+        _synth = SyntheticAudioTrack(sample_rate=_sr)
+        _track = _synth.generate(duration_sec=cfg.synthetic.duration_sec)
+        audio_fusion = AudioFusionProcessor(analyzer=_analyzer, sample_rate=_sr)
+        audio_fusion.load_track(_track)
+        print(f"Audio analytics ENABLED (sample_rate={_sr})")
 
     evidence_recorder = None
     evidence_store = None
@@ -80,6 +95,18 @@ def main() -> int:
             log.write(a)
             print(f"[{a.timestamp:7.2f}s] {a.severity.value.upper():6s} {a.rule:10s} "
                   f"conf={a.confidence:.2f}  {a.message}")
+        # Phase 11: feed audio, merge audio alerts
+        if audio_fusion is not None:
+            try:
+                audio_alerts = audio_fusion.process_video_frame(
+                    state.frame_id, state.timestamp)
+                for aa in audio_alerts:
+                    log.write(aa)
+                    print(f"[{aa.timestamp:7.2f}s] {aa.severity.value.upper():6s} "
+                          f"{aa.rule:10s} conf={aa.confidence:.2f}  {aa.message}")
+                    alerts = list(alerts) + [aa]
+            except Exception as exc:
+                print(f"Audio analytics error: {exc}")
 
         # Phase 3: keep the pre-event buffer warm, open/extend evidence events
         if evidence_recorder is not None:

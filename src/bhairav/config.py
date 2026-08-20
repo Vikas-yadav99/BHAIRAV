@@ -70,7 +70,15 @@ DEFAULTS: dict = {
         # /?public=<token> with no login. None/empty disables it.
         "public_token": None,
     },
-    "cameras": [],  # Phase 8 M2: multi-camera sources; empty = single --source
+    "cameras": [],
+    # Phase 11: audio analytics
+    "audio": {
+        "enabled": True,
+        "sample_rate": 16000,
+        "sensitivity": 1.0,
+        "cooldown_sec": 15.0,
+        "scream_min_dur_sec": 0.4,
+    },  # Phase 8 M2: multi-camera sources; empty = single --source
     # Phase 9 M4 - person re-identification across cameras
     "reid": {
         "assign_threshold": 0.60,   # cosine: above this a person links to a known subject
@@ -142,6 +150,24 @@ class AlertConfig:
     @classmethod
     def from_dict(cls, d: dict) -> "AlertConfig":
         return cls(cooldown_sec=float(d.get("cooldown_sec", 10.0)))
+
+
+@dataclass
+class AudioConfig:
+    """Phase 11 audio analytics settings."""
+    enabled: bool = True
+    sample_rate: int = 16000
+    sensitivity: float = 1.0
+    cooldown_sec: float = 15.0
+    scream_min_dur_sec: float = 0.4
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "AudioConfig":
+        return cls(enabled=bool(d.get("enabled", True)),
+                   sample_rate=int(d.get("sample_rate", 16000)),
+                   sensitivity=float(d.get("sensitivity", 1.0)),
+                   cooldown_sec=float(d.get("cooldown_sec", 15.0)),
+                   scream_min_dur_sec=float(d.get("scream_min_dur_sec", 0.4)))
 
 
 @dataclass
@@ -247,6 +273,7 @@ class AppConfig:
     reid: ReidConfig = field(default_factory=ReidConfig)
     evidence: EvidenceConfig = field(default_factory=EvidenceConfig)
     cameras: list[CameraConfig] = field(default_factory=list)
+    audio: AudioConfig = field(default_factory=AudioConfig)
 
     @classmethod
     def from_dict(cls, d: dict) -> "AppConfig":
@@ -263,7 +290,8 @@ class AppConfig:
                    backend=BackendConfig.from_dict(d.get("backend", {})),
                    reid=ReidConfig.from_dict(d.get("reid", {})),
                    evidence=EvidenceConfig.from_dict(d.get("evidence", {})),
-                   cameras=[CameraConfig.from_dict(c) for c in d.get("cameras", [])])
+                   cameras=[CameraConfig.from_dict(c) for c in d.get("cameras", [])],
+                   audio=AudioConfig.from_dict(d.get("audio", {})))
 
 
 def load_config(path: str | Path = "config.yaml") -> AppConfig:

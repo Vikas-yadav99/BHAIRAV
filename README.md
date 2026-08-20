@@ -1,4 +1,4 @@
-# BHAIRAV — Phase 10: Scene Hazards, Riot Detection & Field-Officer Dispatch
+# BHAIRAV — Phase 11: Audio Analytics & Alert Fusion
 
 **B**ehavioral **H**azard **A**nalysis & **I**ntelligent **R**eal-time **A**ction **V**igilance
 
@@ -28,7 +28,7 @@ Phase 8 added PostgreSQL scale-out, multi-camera pipelines, HA
 and the offline Investigation Assistant; Phase 9 added a
 real-footage validation harness, CI, backups + Prometheus
 metrics, person re-identification and read-only police / public
-dashboards; Phase 10 adds **abandoned-object / accident / riot
+dashboards; Phases 10-11 add **abandoned-object / accident / riot
 detection** (12 rules total, verified end-to-end on the 32 s
 scene) and **live alerting to field officers**: an
 `AlertNotifier` fans red/orange alerts out to per-channel
@@ -556,10 +556,12 @@ python scripts/serve.py --source blob
 
 ## Next: the wider roadmap
 
-Phase 10 shipped abandoned-object / accident / riot detection and live
-field-officer dispatch. Appearance-based person search (clothing color /
-height) is covered by the Phase 9 Re-ID tab. Natural next milestones:
-**audio analytics** (gunshot / glass-break / scream detection, alert fusion
-with vision), **predictive analytics** (crowd build-up forecasting, hotspot
-heatmaps), and **on-device edge agents** (a lightweight BHAIRAV box that runs
-a camera locally and reports only alerts upstream).
+Phase 11 shipped audio analytics: rule-based gunshot / glass-break / scream
+detection fused with the vision alert pipeline. A deterministic synthetic
+audio track exercises all three detectors in the demo scene; audio alerts
+flow through the same evidence, dispatch, webhook, and live-feed systems as
+vision alerts. Natural next milestones:
+**predictive analytics** (crowd build-up forecasting, hotspot
+heatmaps), **on-device edge agents** (a lightweight BHAIRAV box that runs
+a camera locally and reports only alerts upstream), and **edge TPU / NPU
+acceleration** for real-time YOLO inference on embedded hardware).

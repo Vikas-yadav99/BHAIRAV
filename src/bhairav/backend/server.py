@@ -182,6 +182,17 @@ class LiveHub:
             except asyncio.QueueFull:
                 pass
 
+    def publish_audio_level(self, level: dict) -> None:
+        """Phase 11: push live audio RMS/peak to field-dispatch clients.
+
+        Only sent to /ws/field subscribers so the dashboard can render a
+        volume meter; the main live wall does not need per-tick audio data.
+        """
+        if self._loop is None or not self._field:
+            return
+        msg = {"type": "audio_level", "level": level}
+        asyncio.run_coroutine_threadsafe(self._fanout_field(msg), self._loop)
+
     def publish_public_frame(self, frame_id: int, timestamp: float,
                              jpeg_b64: str, camera: str = "__public__") -> None:
         """Phase 9 M5: sanitized frame for the read-only public monitor.

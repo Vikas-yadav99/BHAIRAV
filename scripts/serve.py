@@ -111,7 +111,7 @@ class CameraStatsGroup:
 
 def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,
                webhook_url, recent_alerts, plates, reid=None,
-               public_token: str | None = None, notifier=None):
+               public_token: str | None = None, notifier=None, mic: bool = False):
     """One camera pipeline loop on a background thread.
 
     Each camera gets an independent detector + rules engine (track ids from
@@ -124,6 +124,7 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,
     from bhairav.backend.evidence import EventRecorder
     from bhairav.backend.server import webhook_notify
     from bhairav.pipeline import build_engine, make_detector, run_pipeline
+    from bhairav.audio import AudioAnalyzer, AudioFusionProcessor, SyntheticAudioTrack, MicSource
     from bhairav.sources import (SourceKind, SourceMonitor, classify_source,
                                  open_capture)
 
@@ -134,6 +135,30 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,
     monitor = SourceMonitor(kind, f"{cam.name} ({desc})")
     stats.set_source(monitor)
     print(f"[{cam.id}] pipeline: {cam.name} <- {desc} (kind={kind.value})", flush=True)
+
+    # Phase 11: audio analytics (synthetic track or live microphone)
+    audio_cfg = getattr(cfg, 'audio', None)
+    audio_fusion = None
+    mic_source = None
+    if audio_cfg and getattr(audio_cfg, 'enabled', True):
+        _sr = getattr(audio_cfg, 'sample_rate', 16000)
+        _sens = getattr(audio_cfg, 'sensitivity', 1.0)
+        _cd = getattr(audio_cfg, 'cooldown_sec', 15.0)
+        _smd = getattr(audio_cfg, 'scream_min_dur_sec', 0.4)
+        _analyzer = AudioAnalyzer(frame_rate=_sr, sensitivity=_sens,
+                                  cooldown_sec=_cd, scream_min_dur_sec=_smd)
+        audio_fusion = AudioFusionProcessor(analyzer=_analyzer, sample_rate=_sr)
+        if mic:
+            # Live microphone: sounddevice feeds the analyzer directly
+            mic_source = MicSource(analyzer=_analyzer, sample_rate=_sr)
+            mic_source.start()
+            print(f"[{cam.id}] audio analytics: LIVE MICROPHONE (sample_rate={_sr})", flush=True)
+        else:
+            # Synthetic track (deterministic demo)
+            _synth = SyntheticAudioTrack(sample_rate=_sr)
+            _audio_track = _synth.generate(duration_sec=cfg.synthetic.duration_sec)
+            audio_fusion.load_track(_audio_track)
+            print(f"[{cam.id}] audio analytics: ENABLED (sample_rate={_sr})", flush=True)
 
     def opener():
         if kind is SourceKind.BLOB:
@@ -176,6 +201,41 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,
                     hub.publish_field_alert(ad)
             except Exception as exc:
                 print(f"[{cam.id}] dispatch error: {exc}", flush=True)
+        # Phase 11: feed audio up to current timestamp, merge audio alerts
+        if audio_fusion is not None or mic_source is not None:
+            try:
+                if mic_source is not None:
+                    # Live mic: drain events buffered by the mic callback
+                    from bhairav.audio.fusion import audio_events_to_alerts
+                    audio_alerts = audio_events_to_alerts(
+                        mic_source.drain_events(), frame_id=state.frame_id)
+                else:
+                    audio_alerts = audio_fusion.process_video_frame(
+                        state.frame_id, state.timestamp)
+                for aa in audio_alerts:
+                    recorder.on_alert(aa, state.frame, state=state)
+                    log.write(aa)
+                    ad_a = aa.to_dict()
+                    ad_a["camera"] = cam.id
+                    recent_alerts.append(ad_a)
+                    del recent_alerts[:-cfg.backend.max_recent_alerts]
+                    if aa.severity.value == "red":
+                        webhook_notify(webhook_url, ad_a)
+                    try:
+                        if notifier is not None and notifier.notify(ad_a):
+                            hub.publish_field_alert(ad_a)
+                    except Exception as exc:
+                        print(f"[{cam.id}] audio dispatch error: {exc}", flush=True)
+            except Exception as exc:
+                print(f"[{cam.id}] audio analytics error: {exc}", flush=True)
+            # Phase 11: push audio level to the dashboard volume meter
+            try:
+                if mic_source is not None:
+                    hub.publish_audio_level(mic_source.level)
+                else:
+                    hub.publish_audio_level(audio_fusion.analyzer.level)
+            except Exception:
+                pass
         # close events that have gone quiet (respects post_sec)
                 # person re-id: fold this frame's person tracks into the shared gallery
         try:
@@ -247,6 +307,8 @@ def main() -> int:
                          "(default: $BHAIRAV_EVIDENCE_KEY)")
     ap.add_argument("--tls-cert", default=None, help="TLS certificate file (PEM)")
     ap.add_argument("--tls-key", default=None, help="TLS private key file (PEM)")
+    ap.add_argument("--mic", action="store_true",
+                    help="capture live audio from microphone instead of synthetic track (Phase 11)")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -478,7 +540,8 @@ def main() -> int:
         t = threading.Thread(target=run_stream,
                              args=(cfg, cam, hub, store, evidence_dir, stop, st,
                                    webhook_url, recent_alerts, plates,
-                                   reid_svc, public_token, notifier or None),
+                                   reid_svc, public_token, notifier or None,
+                                   getattr(args, "mic", False)),
                              daemon=True)
         t.start()
 
