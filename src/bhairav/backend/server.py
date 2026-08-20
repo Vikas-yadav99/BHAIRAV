@@ -147,6 +147,7 @@ class LiveHub:
         self._subscribers: set[asyncio.Queue] = set()   # "all cameras" clients
         self._channels: dict[str, set[asyncio.Queue]] = {}  # per-camera clients
         self._field: set[asyncio.Queue] = set()  # Phase 10 M4: field-dispatch clients
+        self._analytics: set[asyncio.Queue] = set()  # Phase 12: analytics feed
         self._max_clients = max_clients
 
     # ---- sync side (pipeline thread) --------------------------------------
@@ -192,6 +193,28 @@ class LiveHub:
             return
         msg = {"type": "audio_level", "level": level}
         asyncio.run_coroutine_threadsafe(self._fanout_field(msg), self._loop)
+
+    def publish_analytics(self, snapshot: dict) -> None:
+        """Phase 12: push analytics snapshot to /ws/analytics clients."""
+        if self._loop is None or not self._analytics:
+            return
+        msg = {"type": "analytics", "data": snapshot}
+        asyncio.run_coroutine_threadsafe(self._fanout_analytics(msg), self._loop)
+
+    async def _fanout_analytics(self, msg: dict) -> None:
+        for q in self._analytics:
+            try:
+                q.put_nowait(msg)
+            except asyncio.QueueFull:
+                pass
+
+    async def subscribe_analytics(self) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue(maxsize=128)
+        self._analytics.add(q)
+        return q
+
+    def unsubscribe_analytics(self, q: asyncio.Queue) -> None:
+        self._analytics.discard(q)
 
     def publish_public_frame(self, frame_id: int, timestamp: float,
                              jpeg_b64: str, camera: str = "__public__") -> None:
@@ -280,7 +303,7 @@ class LiveHub:
     def client_count(self) -> int:
         return (len(self._subscribers)
                 + sum(len(c) for c in self._channels.values())
-                + len(self._field))
+                + len(self._field) + len(self._analytics))
 
 
 # ---------------------------------------------------------------------------
@@ -1020,6 +1043,34 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
             hub.unsubscribe_field(q)
             audit.append(claims["sub"], "field_dispatch_disconnect",
                          "field-officer alert feed")
+
+    @app.websocket("/ws/analytics")
+    async def ws_analytics(websocket: WebSocket):
+        """Phase 12: push-only analytics feed (forecast, heatmap, trends).
+
+        Delivers periodic snapshots (every ~1s) to dashboard analytics tabs.
+        No auth required beyond analyst role (same as field dispatch).
+        """
+        token = (websocket.query_params.get("token") or "").strip()
+        claims = validate_token(secret, token) if token else None
+        if (claims is None or not _user_active(claims.get("sub", ""))):
+            await websocket.close(code=4401, reason="unauthorized")
+            return
+        await websocket.accept()
+        q = await hub.subscribe_analytics()
+        audit.append(claims["sub"], "analytics_connect", "predictive analytics feed")
+        try:
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=5.0)
+                    await websocket.send_text(json.dumps(msg))
+                except asyncio.TimeoutError:
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+        except WebSocketDisconnect:
+            pass
+        finally:
+            hub.unsubscribe_analytics(q)
+            audit.append(claims["sub"], "analytics_disconnect", "predictive analytics feed")
 
     # ---- live stream ------------------------------------------------------
     @app.websocket("/ws/stream")

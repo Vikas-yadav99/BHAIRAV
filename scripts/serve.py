@@ -109,9 +109,22 @@ class CameraStatsGroup:
         }
 
 
-def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,
-               webhook_url, recent_alerts, plates, reid=None,
-               public_token: str | None = None, notifier=None, mic: bool = False):
+def _point_in_zone(point: tuple[float, float], zone_points: list[tuple[float, float]]) -> bool:
+    """Ray-casting point-in-polygon test for normalised (0..1) coordinates."""
+    x, y = point
+    n = len(zone_points)
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = zone_points[i]
+        xj, yj = zone_points[j]
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,               webhook_url, recent_alerts, plates, reid=None,               public_token: str | None = None, notifier=None, mic: bool = False,               analytics_engine=None):
     """One camera pipeline loop on a background thread.
 
     Each camera gets an independent detector + rules engine (track ids from
@@ -125,6 +138,7 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,
     from bhairav.backend.server import webhook_notify
     from bhairav.pipeline import build_engine, make_detector, run_pipeline
     from bhairav.audio import AudioAnalyzer, AudioFusionProcessor, SyntheticAudioTrack, MicSource
+    from bhairav.analytics import AnalyticsEngine
     from bhairav.sources import (SourceKind, SourceMonitor, classify_source,
                                  open_capture)
 
@@ -237,7 +251,29 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,
             except Exception:
                 pass
         # close events that have gone quiet (respects post_sec)
-                # person re-id: fold this frame's person tracks into the shared gallery
+                # Phase 12: feed analytics engine
+        if analytics_engine is not None:
+            try:
+                # compute per-zone person counts from rules engine
+                _zone_counts = {}
+                for z in cfg.zones:
+                    _zone_counts[z.name] = sum(
+                        1 for t in state.tracks if t.is_person
+                        and _point_in_zone(t.centroid, z.points_norm))
+                analytics_engine.observe_frame(
+                    timestamp=state.timestamp,
+                    person_count=sum(1 for t in state.tracks if t.is_person),
+                    tracks=state.tracks,
+                    alerts=alerts + audio_alerts if 'audio_alerts' in dir() else alerts,
+                    zone_counts=_zone_counts or None,
+                    camera=cam.id)
+                # push analytics snapshot every 30 frames (~1s)
+                if state.frame_id % 30 == 0:
+                    analytics_engine.update_heatmap()
+                    hub.publish_analytics(analytics_engine.snapshot())
+            except Exception as exc:
+                print(f"[{cam.id}] analytics error: {exc}", flush=True)
+        # person re-id: fold this frame's person tracks into the shared gallery
         try:
             if reid is not None:
                 reid.observe(state.frame, state, cam.id)
@@ -400,6 +436,19 @@ def main() -> int:
     for cam, st in per_cam:
         stats.add(cam.id, cam.name, st)
     webhook_url = cfg.backend.webhook_url
+    # Phase 12: predictive analytics engine
+    analytics_cfg = getattr(cfg, 'analytics', None)
+    analytics_engine = None
+    if analytics_cfg and getattr(analytics_cfg, 'enabled', True):
+        _ag = analytics_cfg
+        analytics_engine = AnalyticsEngine(
+            forecast_horizon_sec=getattr(_ag, 'forecast_horizon_sec', 10.0),
+            heatmap_grid=(getattr(_ag, 'heatmap_grid_w', 32),
+                          getattr(_ag, 'heatmap_grid_h', 24)),
+            heatmap_decay_sec=getattr(_ag, 'heatmap_decay_sec', 30.0),
+            trend_window_sec=getattr(_ag, 'trend_window_sec', 900.0),
+        )
+        print(f"[analytics] predictive analytics: ENABLED (forecast={getattr(_ag, 'forecast_horizon_sec', 10.0)}s ahead, heatmap={getattr(_ag, 'heatmap_grid_w', 32)}x{getattr(_ag, 'heatmap_grid_h', 24)})")
     from bhairav.backend.notify import channels_from_config
     notifier = channels_from_config(webhook_url, cfg.backend.alert_channels)
     if notifier:
@@ -541,7 +590,7 @@ def main() -> int:
                              args=(cfg, cam, hub, store, evidence_dir, stop, st,
                                    webhook_url, recent_alerts, plates,
                                    reid_svc, public_token, notifier or None,
-                                   getattr(args, "mic", False)),
+                                   getattr(args, "mic", False), analytics_engine),
                              daemon=True)
         t.start()
 

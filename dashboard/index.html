@@ -195,6 +195,20 @@ table.tbl td.muted { color: var(--muted); }
 .public-cam { font-size: 12px; font-weight: 700; letter-spacing: .5px; color: var(--cyan); margin-bottom: 8px; }
 .dot.dead { background: #f87171; }
 
+/* Phase 12 - analytics tab */
+.heatmap-grid { display: grid; gap: 1px; background: var(--border2); border-radius: 8px; overflow: hidden; max-width: 600px; }
+.heatmap-cell { width: 100%; aspect-ratio: 1; }
+.analytics-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.analytics-panel { background: var(--panel); border: 1px solid var(--border2); border-radius: 10px; padding: 16px; min-width: 280px; flex: 1; }
+.analytics-panel h3 { margin: 0 0 12px; font-size: 14px; color: var(--cyan); }
+.forecast-trend { font-size: 24px; font-weight: 800; margin: 4px 0; }
+.forecast-trend.rising { color: #ff6b6b; }
+.forecast-trend.falling { color: #51cf66; }
+.forecast-trend.stable { color: var(--muted); }
+.trend-bar { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 13px; }
+.trend-bar .bar { height: 6px; border-radius: 3px; background: var(--cyan); min-width: 2px; }
+.sev-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+.sev-red { background: #ff6b6b; } .sev-orange { background: #ffa94d; } .sev-yellow { background: #ffd43b; } .sev-green { background: #51cf66; }
 /* Phase 9 M4 - re-id tab */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .trail { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -1650,6 +1664,131 @@ function PublicView() {
   );
 }
 
+// ---------- Analytics tab (Phase 12: predictive analytics) ----------
+function AnalyticsTab({ token }) {
+  const [data, setData] = React.useState(null);
+  const [status, setStatus] = React.useState('connecting');
+
+  React.useEffect(() => {
+    let ws, alive = true, retry = 0, timer;
+    function connect() {
+      const base = location.protocol + '//' + location.host;
+      ws = new WebSocket(base.replace('http', 'ws') + '/ws/analytics?token=' + token);
+      setStatus('connecting');
+      ws.onopen = () => { retry = 0; setStatus('live'); };
+      ws.onmessage = (ev) => {
+        const m = JSON.parse(ev.data);
+        if (m.type === 'analytics') setData(m.data);
+      };
+      ws.onclose = () => { if (alive) { setStatus('offline'); retry++; timer = setTimeout(connect, Math.min(2000 * retry, 10000)); } };
+    }
+    connect();
+    return () => { alive = false; clearTimeout(timer); if (ws) ws.close(); };
+  }, [token]);
+
+  const forecast = data && data.forecast ? data.forecast.global || {} : {};
+  const heatmap = data ? data.heatmap || {} : {};
+  const trends = data ? data.trends || {} : {};
+  const grid = heatmap.grid || [];
+  const gridW = heatmap.grid_w || 32;
+
+  return React.createElement('div', {style: {padding: '16px 24px'}},
+    React.createElement('div', {style: {display:'flex', alignItems:'center', gap: 12, marginBottom: 16}},
+      React.createElement('h2', {style: {margin:0}}, '\ud83d\udcc8 Analytics'),
+      React.createElement('span', {className: 'pill ' + status}, status === 'live' ? '\ud83d\udfe2 connected' : '\ud83d\udd34 ' + status),
+      data && React.createElement('span', {style: {fontSize:12, color:'var(--muted)'}}, 'frames: ' + data.frame_count)
+    ),
+    !data && React.createElement('div', {style: {color:'var(--muted)', padding: 40}}, 'Waiting for analytics data\u2026'),
+    data && React.createElement(React.Fragment, null,
+      React.createElement('div', {className: 'analytics-row'},
+        React.createElement('div', {className: 'analytics-panel', style: {maxWidth: 340}},
+          React.createElement('h3', null, 'Forecast (' + (forecast.horizon_sec || 10) + 's ahead)'),
+          React.createElement('div', {className: 'forecast-trend ' + (forecast.trend || 'stable')}, (forecast.trend || 'stable').toUpperCase()),
+          React.createElement('div', {style: {fontSize:13, color:'var(--muted)', lineHeight: 1.8}},
+            React.createElement('div', null, 'Current: ', React.createElement('b', null, forecast.current_density != null ? forecast.current_density : '\u2014'), ' persons'),
+            React.createElement('div', null, 'Predicted: ', React.createElement('b', null, forecast.predicted_density != null ? forecast.predicted_density : '\u2014'), ' persons'),
+            React.createElement('div', null, 'Confidence: ', React.createElement('b', null, forecast.confidence != null ? (forecast.confidence * 100).toFixed(0) + '%' : '\u2014')),
+            React.createElement('div', null, 'Slope: ', React.createElement('b', null, forecast.slope_per_sec != null ? forecast.slope_per_sec : '\u2014'), ' p/s')
+          )
+        ),
+        React.createElement('div', {className: 'analytics-panel'},
+          React.createElement('h3', null, 'Alert Summary'),
+          React.createElement('div', {style: {fontSize:13, color:'var(--muted)', lineHeight: 1.8}},
+            React.createElement('div', null, 'Total: ', React.createElement('b', null, trends.total || 0)),
+            React.createElement('div', null, 'Active: ', React.createElement('b', null, trends.active || 0)),
+            React.createElement('div', null, 'Rate: ', React.createElement('b', null, trends.rate_per_min || 0), ' /min')
+          ),
+          React.createElement('div', {style: {marginTop:12}},
+            React.createElement('div', {style: {fontSize:12, color:'var(--muted)', marginBottom: 4}}, 'By Severity'),
+            Object.entries(trends.by_severity || {}).map(function(entry) {
+              var sev = entry[0], n = entry[1];
+              return React.createElement('div', {key: sev, className: 'trend-bar'},
+                React.createElement('span', {className: 'sev-dot sev-' + sev}),
+                React.createElement('span', {style: {width:60}}, sev),
+                React.createElement('div', {className: 'bar', style: {width: Math.min(120, n * 4)}}),
+                React.createElement('span', null, n));
+            })
+          )
+        ),
+        React.createElement('div', {className: 'analytics-panel'},
+          React.createElement('h3', null, 'Bursts & Rules'),
+          (trends.bursts || []).length === 0 && React.createElement('div', {style: {fontSize:13, color:'var(--muted)'}}, 'No active bursts'),
+          (trends.bursts || []).map(function(b, i) {
+            return React.createElement('div', {key: i, style: {fontSize:13, marginBottom:6, padding: '6px 10px', background: 'var(--bg)', borderRadius: 6}},
+              React.createElement('b', null, b.rule), ' \u2014 ', b.count, ' alerts in ', b.window_sec, 's');
+          }),
+          React.createElement('div', {style: {marginTop: 12}},
+            React.createElement('div', {style: {fontSize:12, color:'var(--muted)', marginBottom: 4}}, 'By Rule'),
+            Object.entries(trends.by_rule || {}).sort(function(a,b){return b[1]-a[1]}).map(function(entry) {
+              var rule = entry[0], n = entry[1];
+              return React.createElement('div', {key: rule, className: 'trend-bar'},
+                React.createElement('span', {style: {width:120, fontSize:12, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, rule),
+                React.createElement('div', {className: 'bar', style: {width: Math.min(120, n * 3)}}),
+                React.createElement('span', null, n));
+            })
+          )
+        )
+      ),
+      React.createElement('div', {className: 'analytics-panel', style: {marginBottom: 16}},
+        React.createElement('h3', null, 'Spatial Heatmap (' + (heatmap.points || 0) + ' samples)'),
+        grid.length > 0 && React.createElement('div', {className: 'heatmap-grid', style: {gridTemplateColumns: 'repeat(' + gridW + ', 1fr)'}},
+          grid.flat().map(function(v, i) {
+            return React.createElement('div', {key: i, className: 'heatmap-cell', style: {
+              background: v > 0
+                ? 'rgba(255, ' + Math.round(255 * (1 - v)) + ', 0, ' + Math.min(1, v * 0.8 + 0.1) + ')'
+                : 'transparent'}});
+          })
+        ),
+        grid.length === 0 && React.createElement('div', {style: {fontSize:13, color:'var(--muted)'}}, 'No heatmap data yet')
+      ),
+      React.createElement('div', {className: 'analytics-row'},
+        React.createElement('div', {className: 'analytics-panel'},
+          React.createElement('h3', null, 'By Zone'),
+          Object.entries(trends.by_zone || {}).map(function(entry) {
+            var zone = entry[0], n = entry[1];
+            return React.createElement('div', {key: zone, className: 'trend-bar'},
+              React.createElement('span', {style: {width:100, fontSize:12}}, zone),
+              React.createElement('div', {className: 'bar', style: {width: Math.min(120, n * 4)}}),
+              React.createElement('span', null, n));
+          }),
+          Object.keys(trends.by_zone || {}).length === 0 && React.createElement('div', {style: {fontSize:13, color:'var(--muted)'}}, 'No zone data')
+        ),
+        React.createElement('div', {className: 'analytics-panel'},
+          React.createElement('h3', null, 'By Camera'),
+          Object.entries(trends.by_camera || {}).map(function(entry) {
+            var cam = entry[0], n = entry[1];
+            return React.createElement('div', {key: cam, className: 'trend-bar'},
+              React.createElement('span', {style: {width:100, fontSize:12}}, cam),
+              React.createElement('div', {className: 'bar', style: {width: Math.min(120, n * 4)}}),
+              React.createElement('span', null, n));
+          }),
+          Object.keys(trends.by_camera || {}).length === 0 && React.createElement('div', {style: {fontSize:13, color:'var(--muted)'}}, 'No camera data')
+        )
+      )
+    )
+  );
+}
+
 function App() {
   const [auth, setAuth] = useState(() => {
     try {
@@ -1683,6 +1822,8 @@ function App() {
   if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'vehicles', label: '🚗 Vehicles' });
   if (auth.role === 'analyst' || auth.role === 'admin' || auth.role === 'police') tabs.push({ id: 'reid', label: '👤 Re-ID' });
   if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'audit', label: '🛡 Audit' });
+
+  if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'analytics', label: '📈 Analytics' });
   if (auth.role === 'admin') tabs.push({ id: 'users', label: '👥 Users' });
 
   return (
@@ -1710,6 +1851,7 @@ function App() {
         {tab === 'vehicles' && <VehiclesTab token={auth.token} role={auth.role} />}
         {tab === 'reid' && <ReidTab token={auth.token} role={auth.role} />}
         {tab === 'audit' && <AuditTab token={auth.token} />}
+        {tab === 'analytics' && <AnalyticsTab token={auth.token} />}
         {tab === 'users' && <UsersTab token={auth.token} me={auth.username} />}
       </main>
     </>

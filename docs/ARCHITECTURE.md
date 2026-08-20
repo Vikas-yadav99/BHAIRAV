@@ -282,6 +282,39 @@ audio:
   scream_min_dur_sec: 0.4
 ```
 
+## Phase 12 — Predictive Analytics
+
+Three analytics engines run in real-time alongside the vision + audio
+pipeline:
+
+- **CrowdDensityForecast** () - weighted linear
+  regression over a rolling 60 s window, extrapolates person counts 10 s
+  ahead. Supports per-zone forecasts. Trend: rising / falling / stable.
+
+- **SpatialHeatmap** () - track centroids accumulated
+  into a 32x24 grid with exponential time decay (30 s half-life). JSON
+  grid suitable for canvas rendering.
+
+- **TrendAnalyzer** () - 15-min rolling window of
+  alerts grouped by rule, severity, zone, camera. Burst detection at 5+
+  alerts in 10 s.
+
+- **AnalyticsEngine** () - facade that feeds frames
+  into all three and exposes a unified snapshot for the WebSocket push.
+
+### Config
+
+
+
+### Server wiring
+
+In ,  is instantiated once per server. Each
+camera's  callback feeds person counts, track centroids, and
+alerts into the engine. Every 30 frames (~1 s at 30 fps), the engine
+rebuilds the heatmap and pushes a full snapshot via
+ to  clients.
+
+
 ## Running and testing
 
 - Dev, file stores, synthetic demo:

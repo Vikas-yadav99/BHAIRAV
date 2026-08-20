@@ -261,6 +261,17 @@ class CameraConfig:
 
 
 @dataclass
+class AnalyticsConfig:
+    """Phase 12: predictive analytics settings."""
+    enabled: bool = True
+    forecast_horizon_sec: float = 10.0
+    heatmap_grid_w: int = 32
+    heatmap_grid_h: int = 24
+    heatmap_decay_sec: float = 30.0
+    trend_window_sec: float = 900.0
+
+
+@dataclass
 class AppConfig:
     """Top-level configuration tree, built by load_config() from config.yaml deep-merged over DEFAULTS."""
     detector: str = "blob"  # blob | yolo | auto
@@ -274,6 +285,7 @@ class AppConfig:
     evidence: EvidenceConfig = field(default_factory=EvidenceConfig)
     cameras: list[CameraConfig] = field(default_factory=list)
     audio: AudioConfig = field(default_factory=AudioConfig)
+    analytics: AnalyticsConfig = field(default_factory=AnalyticsConfig)
 
     @classmethod
     def from_dict(cls, d: dict) -> "AppConfig":

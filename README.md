@@ -1,4 +1,4 @@
-# BHAIRAV — Phase 11: Audio Analytics & Alert Fusion
+# BHAIRAV — Phase 12: Predictive Analytics
 
 **B**ehavioral **H**azard **A**nalysis & **I**ntelligent **R**eal-time **A**ction **V**igilance
 
@@ -554,14 +554,35 @@ python scripts/serve.py --source blob
 # -> demo login: police / police123
 ```
 
-## Next: the wider roadmap
+## Phase 12 — Predictive Analytics
 
-Phase 11 shipped audio analytics: rule-based gunshot / glass-break / scream
-detection fused with the vision alert pipeline. A deterministic synthetic
-audio track exercises all three detectors in the demo scene; audio alerts
-flow through the same evidence, dispatch, webhook, and live-feed systems as
-vision alerts. Natural next milestones:
-**predictive analytics** (crowd build-up forecasting, hotspot
-heatmaps), **on-device edge agents** (a lightweight BHAIRAV box that runs
-a camera locally and reports only alerts upstream), and **edge TPU / NPU
-acceleration** for real-time YOLO inference on embedded hardware).
+Three analytics engines run in real-time alongside the vision + audio
+pipeline:
+
+1. **Crowd Density Forecast** — weighted linear regression over a rolling
+   60 s window extrapolates person counts 10 s ahead. Trend classified as
+   *rising / falling / stable* with R-squared confidence.
+
+2. **Spatial Heatmap** — track centroids accumulated into a 32x24 grid
+   with exponential time decay (30 s half-life). Hotspots glow orange-red
+   on the dashboard; quiet zones fade to transparent.
+
+3. **Alert Trend Analyzer** — 15-minute rolling window tracks per-rule,
+   per-severity, per-zone, and per-camera alert counts. Burst detection
+   fires when a single rule triggers 5+ times in 10 s.
+
+All three feed into a new **/ws/analytics** WebSocket endpoint and a new
+**📈 Analytics** dashboard tab with live forecast, heatmap grid, trend bars,
+and burst alerts.
+
+### Server wiring
+-  in  controls forecast horizon, heatmap
+  grid size, decay half-life, and trend window.
+-  instantiates  per server; each camera's
+   callback feeds tracks, alerts, and per-zone person counts.
+- Snapshots are pushed to  every 30 frames (~1 s).
+
+Natural next milestones: **on-device edge agents** (a lightweight BHAIRAV
+box that runs a camera locally and reports only alerts upstream) and
+**edge TPU / NPU acceleration** for real-time YOLO inference on embedded
+hardware).

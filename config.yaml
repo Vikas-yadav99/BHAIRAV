@@ -172,3 +172,11 @@ evidence:
   retention_days: 30  # expiry policy for stored evidence
   max_events: 300     # cap on stored events (oldest pruned); keeps the demo
                       # store small so searches stay instant even on slow disks
+# Phase 12: Predictive Analytics
+analytics:
+  enabled: true
+  forecast_horizon_sec: 10.0  # how far ahead to predict (seconds)
+  heatmap_grid_w: 32          # spatial heatmap width
+  heatmap_grid_h: 24          # spatial heatmap height
+  heatmap_decay_sec: 30.0     # half-life for heatmap time decay
+  trend_window_sec: 900.0     # rolling window for trend analysis (15 min)
