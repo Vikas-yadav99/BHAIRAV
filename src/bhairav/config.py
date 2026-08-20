@@ -271,6 +271,28 @@ class AnalyticsConfig:
     trend_window_sec: float = 900.0
 
 
+
+@dataclass
+class EdgeConfig:
+    """Phase 13.1: edge agent settings."""
+    enabled: bool = False
+    upstream_url: str = ""
+    mqtt_broker: str = ""
+    mqtt_port: int = 1883
+    mqtt_topic: str = "bhairav/alerts"
+    store_path: str = "output/edge_alerts.jsonl"
+    fps_cap: int = 10
+    push_interval_sec: float = 5.0
+
+
+@dataclass
+class FederationConfig:
+    """Phase 13.3: multi-site federation settings."""
+    enabled: bool = False
+    site_id: str = "site-1"
+    peers: list = field(default_factory=list)
+    secret: str = ""
+    push_interval_sec: float = 10.0
 @dataclass
 class AppConfig:
     """Top-level configuration tree, built by load_config() from config.yaml deep-merged over DEFAULTS."""
@@ -286,6 +308,8 @@ class AppConfig:
     cameras: list[CameraConfig] = field(default_factory=list)
     audio: AudioConfig = field(default_factory=AudioConfig)
     analytics: AnalyticsConfig = field(default_factory=AnalyticsConfig)
+    edge: EdgeConfig = field(default_factory=EdgeConfig)
+    federation: FederationConfig = field(default_factory=FederationConfig)
 
     @classmethod
     def from_dict(cls, d: dict) -> "AppConfig":

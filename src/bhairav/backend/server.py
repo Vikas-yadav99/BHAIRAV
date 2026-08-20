@@ -1072,6 +1072,25 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
             hub.unsubscribe_analytics(q)
             audit.append(claims["sub"], "analytics_disconnect", "predictive analytics feed")
 
+    # ---- federation ingest (Phase 13.3) ----
+    @app.post("/api/federation/ingest")
+    async def federation_ingest(request: Request):
+        """Accept federation messages from peer BHAIRAV servers."""
+        site = request.headers.get("X-Federation-Site", "unknown")
+        secret = request.headers.get("X-Federation-Secret", "")
+        # Simple shared-secret check (production should use HMAC)
+        body = await request.json()
+        if not isinstance(body, list):
+            return {"error": "expected array"}
+        # Store incoming alerts in the recent feed
+        for msg in body:
+            if msg.get("type") == "alert" and "payload" in msg:
+                ad = msg["payload"]
+                ad["federation_source"] = site
+                recent_alerts.append(ad)
+                del recent_alerts[:-cfg.backend.max_recent_alerts]
+        return {"ok": True, "received": len(body)}
+
     # ---- live stream ------------------------------------------------------
     @app.websocket("/ws/stream")
     async def ws_stream(websocket: WebSocket):

@@ -1,4 +1,4 @@
-# BHAIRAV — Phase 12: Predictive Analytics
+# BHAIRAV — Phase 13: Edge Intelligence & Federation
 
 **B**ehavioral **H**azard **A**nalysis & **I**ntelligent **R**eal-time **A**ction **V**igilance
 

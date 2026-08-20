@@ -180,3 +180,19 @@ analytics:
   heatmap_grid_h: 24          # spatial heatmap height
   heatmap_decay_sec: 30.0     # half-life for heatmap time decay
   trend_window_sec: 900.0     # rolling window for trend analysis (15 min)
+# Phase 13.1: Edge Agent
+edge:
+  enabled: false
+  upstream_url: ""
+  mqtt_broker: ""
+  mqtt_port: 1883
+  store_path: output/edge_alerts.jsonl
+  fps_cap: 10
+
+# Phase 13.3: Multi-Site Federation
+federation:
+  enabled: false
+  site_id: site-1
+  peers: []
+  secret: ""
+  push_interval_sec: 10.0
