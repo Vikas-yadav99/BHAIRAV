@@ -303,6 +303,32 @@ class FederationConfig:
     secret: str = ""
     push_interval_sec: float = 10.0
 @dataclass
+class ResponseConfig:
+    """Phase 17: threat response settings."""
+    ptz_enabled: bool = False
+    ptz_protocol: str = "simulated"
+    escalation_enabled: bool = True
+    escalation_rules: list = field(default_factory=list)
+    reports_dir: str = "output/reports"
+    tenants_path: str = "output/tenants.json"
+    integration_channels: list = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ResponseConfig":
+        ptz = d.get("ptz", {})
+        esc = d.get("escalation", {})
+        return cls(
+            ptz_enabled=bool(ptz.get("enabled", False)),
+            ptz_protocol=str(ptz.get("protocol", "simulated")),
+            escalation_enabled=bool(esc.get("enabled", True)),
+            escalation_rules=list(esc.get("rules", [])),
+            reports_dir=str(d.get("reports", {}).get("output_dir", "output/reports")),
+            tenants_path=str(d.get("tenants", {}).get("store_path", "output/tenants.json")),
+            integration_channels=list(d.get("integrations", {}).get("channels", [])),
+        )
+
+
+@dataclass
 class AppConfig:
     """Top-level configuration tree, built by load_config() from config.yaml deep-merged over DEFAULTS."""
     detector: str = "blob"  # blob | yolo | auto
@@ -319,6 +345,7 @@ class AppConfig:
     analytics: AnalyticsConfig = field(default_factory=AnalyticsConfig)
     edge: EdgeConfig = field(default_factory=EdgeConfig)
     federation: FederationConfig = field(default_factory=FederationConfig)
+    response: ResponseConfig = field(default_factory=ResponseConfig)
 
     @classmethod
     def from_dict(cls, d: dict) -> "AppConfig":

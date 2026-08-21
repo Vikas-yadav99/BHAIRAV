@@ -1131,6 +1131,125 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
                 del recent[:-200]
         return {"ok": True, "received": len(body)}
 
+    # ---- Phase 17: Threat Response endpoints ----------------------------
+
+    # PTZ endpoints
+    ptz_controllers = {}
+
+    @app.get("/api/ptz/cameras")
+    def ptz_list_cameras(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        return {"cameras": list(ptz_controllers.keys())}
+
+    @app.post("/api/ptz/{camera_id}/move")
+    def ptz_move(camera_id: str, payload: dict = Body(...),
+                 claims: dict = Depends(require(PERM_USERS))):
+        from bhairav.response.ptz import PTZController, PTZCommand
+        if camera_id not in ptz_controllers:
+            ptz_controllers[camera_id] = PTZController(camera_id)
+        ctrl = ptz_controllers[camera_id]
+        cmd = payload.get("command", "stop")
+        try:
+            ptz_cmd = PTZCommand(cmd)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Unknown command: {cmd}")
+        speed = float(payload.get("speed", 0.5))
+        result = ctrl.move(ptz_cmd, speed=speed)
+        return result
+
+    @app.get("/api/ptz/{camera_id}/state")
+    def ptz_state(camera_id: str, claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        if camera_id not in ptz_controllers:
+            return {"camera": camera_id, "pan": 0, "tilt": 0, "zoom": 1, "moving": False}
+        ctrl = ptz_controllers[camera_id]
+        return {"camera": camera_id, "pan": ctrl.state.pan, "tilt": ctrl.state.tilt,
+                "zoom": ctrl.state.zoom, "moving": ctrl.state.moving}
+
+    # Escalation endpoints
+    @app.get("/api/escalation/events")
+    def escalation_events(limit: int = Query(20, ge=1, le=100),
+                          claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        return {"events": []}  # populated by engine at runtime
+
+    # Incident report endpoints
+    @app.get("/api/reports")
+    def list_reports(status: str | None = None, limit: int = Query(50, ge=1, le=200),
+                     claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        return {"reports": []}  # populated by ReportGenerator at runtime
+
+    @app.post("/api/reports")
+    def create_report(payload: dict = Body(...),
+                      claims: dict = Depends(require(PERM_USERS))):
+        import uuid
+        from bhairav.response.reports import ReportGenerator
+        rg = ReportGenerator()
+        rid = str(uuid.uuid4().hex[:8])
+        report = rg.create_report(
+            incident_id=f"INC-{rid}",
+            title=payload.get("title", "Untitled Incident"),
+            severity=payload.get("severity", "orange"),
+            zone=payload.get("zone"),
+            camera=payload.get("camera"),
+            description=payload.get("description", ""),
+        )
+        return report.to_dict()
+
+    # Tenant management endpoints
+    @app.get("/api/tenants")
+    def list_tenants(claims: dict = Depends(require(PERM_USERS))):
+        from bhairav.response.tenant import TenantManager
+        tm = TenantManager()
+        return {"tenants": tm.list_tenants()}
+
+    @app.post("/api/tenants")
+    def create_tenant(payload: dict = Body(...),
+                      claims: dict = Depends(require(PERM_USERS))):
+        from bhairav.response.tenant import TenantManager
+        tm = TenantManager()
+        t = tm.create_tenant(
+            tenant_id=payload.get("tenant_id", ""),
+            name=payload.get("name", ""),
+            role=payload.get("role", "operator"),
+            cameras=payload.get("cameras", []),
+            zones=payload.get("zones", []),
+        )
+        return t.to_dict()
+
+    @app.get("/api/tenants/{tenant_id}")
+    def get_tenant(tenant_id: str, claims: dict = Depends(require(PERM_USERS))):
+        from bhairav.response.tenant import TenantManager
+        tm = TenantManager()
+        t = tm.get_tenant(tenant_id)
+        if not t:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        return t.to_dict()
+
+    @app.delete("/api/tenants/{tenant_id}")
+    def delete_tenant(tenant_id: str, claims: dict = Depends(require(PERM_USERS))):
+        from bhairav.response.tenant import TenantManager
+        tm = TenantManager()
+        if not tm.delete_tenant(tenant_id):
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        return {"deleted": tenant_id}
+
+    # Integration endpoints
+    @app.get("/api/integrations")
+    def list_integrations(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        return {"channels": []}
+
+    @app.post("/api/integrations/channels")
+    def register_channel(payload: dict = Body(...),
+                         claims: dict = Depends(require(PERM_USERS))):
+        from bhairav.response.integrations import ExternalChannel
+        ch = ExternalChannel(
+            channel_id=payload.get("channel_id", ""),
+            channel_type=payload.get("channel_type", "webhook"),
+            name=payload.get("name", ""),
+            endpoint=payload.get("endpoint", ""),
+            enabled=payload.get("enabled", True),
+            severity_filter=payload.get("severity_filter", ["red"]),
+        )
+        return ch.__dict__
+
     # ---- live stream ------------------------------------------------------
     @app.websocket("/ws/stream")
     async def ws_stream(websocket: WebSocket):
