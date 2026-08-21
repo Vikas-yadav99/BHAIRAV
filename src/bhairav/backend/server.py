@@ -891,6 +891,47 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
                 "results": [{"subject": r["subject"], "score": r["score"]}
                             for r in hits]}
 
+    # ---- Phase 14: batch embedding + similarity matrix --------------------
+    @app.get("/api/reid/similarity")
+    def reid_similarity(
+        limit: int = Query(50, ge=2, le=200),
+        claims: dict = Depends(require(PERM_EVIDENCE_READ)),
+    ):
+        """Pairwise cosine similarity matrix for all (or top-N) subjects."""
+        svc = _reid_or_503()
+        subjects = svc.store.list()
+        subjects = subjects[:limit]
+        import numpy as np
+        from bhairav.reid.deep_embedder import batch_cosine_matrix
+        embs = []
+        ids = []
+        for s in subjects:
+            rec = svc.store.get(s["id"])
+            if rec and "embedding" in rec:
+                embs.append(np.array(rec["embedding"], dtype=np.float64))
+                ids.append(s["id"])
+        mat = batch_cosine_matrix(embs) if len(embs) >= 2 else np.empty((0, 0))
+        return {
+            "subject_ids": ids,
+            "matrix": mat.tolist(),
+            "count": len(ids),
+        }
+
+    @app.get("/api/reid/embedding-info")
+    def reid_embedding_info(
+        claims: dict = Depends(require(PERM_EVIDENCE_READ)),
+    ):
+        """Info about the current embedding model (deep vs legacy)."""
+        svc = _reid_or_503()
+        ext = svc.extractor
+        is_deep = getattr(ext, "is_deep", False)
+        dim = getattr(ext, "embedding_dim", None)
+        return {
+            "mode": "deep" if is_deep else "hsv+hog",
+            "embedding_dim": dim,
+            "model_loaded": is_deep,
+        }
+
     # ---- Phase 9 M5: read-only public monitor (privacy-blurred) ----------
     # The pipeline publishes sanitized frames (heads blurred, downscaled,
     # no tracks/poses/alerts) to hub channel "__public__"; this endpoint
@@ -1077,7 +1118,6 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
     async def federation_ingest(request: Request):
         """Accept federation messages from peer BHAIRAV servers."""
         site = request.headers.get("X-Federation-Site", "unknown")
-        secret = request.headers.get("X-Federation-Secret", "")
         # Simple shared-secret check (production should use HMAC)
         body = await request.json()
         if not isinstance(body, list):
@@ -1087,8 +1127,8 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
             if msg.get("type") == "alert" and "payload" in msg:
                 ad = msg["payload"]
                 ad["federation_source"] = site
-                recent_alerts.append(ad)
-                del recent_alerts[:-cfg.backend.max_recent_alerts]
+                recent.append(ad)
+                del recent[:-200]
         return {"ok": True, "received": len(body)}
 
     # ---- live stream ------------------------------------------------------

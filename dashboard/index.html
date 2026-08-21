@@ -1,6 +1,13 @@
 <!doctype html>
 <html lang="en">
 <head>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#00e5ff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="BHAIRAV Command Center - Real-time surveillance intelligence">
+  <link rel="manifest" href="/dashboard/manifest.json">
+  <link rel="apple-touch-icon" href="/dashboard/icon-192.png">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BHAIRAV Command Center</title>
@@ -1824,6 +1831,7 @@ function App() {
   if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'audit', label: '🛡 Audit' });
 
   if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'analytics', label: '📈 Analytics' });
+  tabs.push({ id: 'map', label: '🗺 Map' });
   if (auth.role === 'admin') tabs.push({ id: 'users', label: '👥 Users' });
 
   return (
@@ -1852,6 +1860,7 @@ function App() {
         {tab === 'reid' && <ReidTab token={auth.token} role={auth.role} />}
         {tab === 'audit' && <AuditTab token={auth.token} />}
         {tab === 'analytics' && <AnalyticsTab token={auth.token} />}
+        {tab === 'map' && <MapTab token={auth.token} />}
         {tab === 'users' && <UsersTab token={auth.token} me={auth.username} />}
       </main>
     </>

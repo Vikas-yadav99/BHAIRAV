@@ -138,7 +138,6 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,               we
     from bhairav.backend.server import webhook_notify
     from bhairav.pipeline import build_engine, make_detector, run_pipeline
     from bhairav.audio import AudioAnalyzer, AudioFusionProcessor, SyntheticAudioTrack, MicSource
-    from bhairav.analytics import AnalyticsEngine
     from bhairav.sources import (SourceKind, SourceMonitor, classify_source,
                                  open_capture)
 
@@ -437,6 +436,7 @@ def main() -> int:
         stats.add(cam.id, cam.name, st)
     webhook_url = cfg.backend.webhook_url
     # Phase 12: predictive analytics engine
+    from bhairav.analytics import AnalyticsEngine
     analytics_cfg = getattr(cfg, 'analytics', None)
     analytics_engine = None
     if analytics_cfg and getattr(analytics_cfg, 'enabled', True):
@@ -485,7 +485,17 @@ def main() -> int:
         print("[reid] gallery: PostgreSQL (reid_subjects / reid_sightings)")
     else:
         print("[reid] gallery: files (reid/gallery.json + sightings.jsonl)")
-    reid_svc = ReidService(reid_store,
+    # Phase 14: deep ONNX embeddings when a model is configured
+    from bhairav.reid import DeepAppearanceExtractor
+    reid_extractor = DeepAppearanceExtractor(
+        model_path=cfg.reid.deep_model,
+        input_size=tuple(cfg.reid.deep_size) if cfg.reid.deep_size else None,
+    )
+    if reid_extractor.is_deep:
+        print("[reid] deep ONNX embedding model loaded")
+    else:
+        print("[reid] using HSV+HOG appearance (no deep model configured)")
+    reid_svc = ReidService(reid_store, extractor=reid_extractor,
                            assign_threshold=cfg.reid.assign_threshold,
                            sighting_gap_sec=cfg.reid.sighting_gap_sec)
 

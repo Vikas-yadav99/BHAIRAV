@@ -83,6 +83,9 @@ DEFAULTS: dict = {
     "reid": {
         "assign_threshold": 0.60,   # cosine: above this a person links to a known subject
         "sighting_gap_sec": 3.0,    # min seconds between recorded sightings of one track
+        "deep_model": None,         # Phase 14: path to ONNX re-ID model (None = HSV+HOG)
+        "deep_size": [128, 256],    # Phase 14: model input (W, H)
+        "deep_threshold": 0.70,     # Phase 14: cosine threshold for deep matches
     },
     "evidence": {
         "dir": "output/evidence",
@@ -200,14 +203,20 @@ class BackendConfig:
 
 @dataclass
 class ReidConfig:
-    """Phase 9 M4 - person re-identification tuning."""
+    """Phase 9 M4 + Phase 14 - person re-identification tuning."""
     assign_threshold: float = 0.60
     sighting_gap_sec: float = 3.0
+    deep_model: str | None = None       # Phase 14: ONNX model path
+    deep_size: list = field(default_factory=lambda: [128, 256])  # Phase 14
+    deep_threshold: float = 0.70        # Phase 14: cosine threshold for deep matches
 
     @classmethod
     def from_dict(cls, d: dict) -> "ReidConfig":
         return cls(assign_threshold=float(d.get("assign_threshold", 0.60)),
-                   sighting_gap_sec=float(d.get("sighting_gap_sec", 3.0)))
+                   sighting_gap_sec=float(d.get("sighting_gap_sec", 3.0)),
+                   deep_model=d.get("deep_model") or None,
+                   deep_size=list(d.get("deep_size", [128, 256])),
+                   deep_threshold=float(d.get("deep_threshold", 0.70)))
 
 
 @dataclass

@@ -327,6 +327,65 @@ rebuilds the heatmap and pushes a full snapshot via
 - Deploy: see `deploy/README.md` - `docker compose up -d` brings up
   nginx + N app replicas + PostgreSQL with health checks.
 
+## Phase 13 — Edge Intelligence & Federation
+
+### Edge Agent (`edge/` package)
+- `EdgeAgent`: lightweight single-camera pipeline (detector + rules), stores
+  locally, pushes upstream via HTTPS webhook or MQTT (QoS 1).
+- `LocalAlertStore`: append-only JSONL with batch read/clear and pruning.
+- `UpstreamPusher`: background thread draining alerts with retry + re-queue.
+
+### Edge TPU / NPU (`detectors/edge_tpu.py`)
+- Auto-detects Coral Edge TPU (TFLite + libedgetpu), ONNX Runtime
+  (Jetson/CUDA), or TFLite CPU fallback.
+
+### Multi-Site Federation (`federation/` package)
+- `FederationMessage` protocol: alert, sighting, analytics, heartbeat.
+- `FederationClient`: outbound push to N peers with batch + retry.
+- `/api/federation/ingest` endpoint for inbound cross-site messages.
+
+### Mobile PWA (`dashboard/`)
+- `manifest.json` for installable home-screen app.
+- `sw.js` service worker: cache-first for static assets, network-first
+  for API/WS, push notification handling.
+
+## Phase 14 — Deep Re-ID Embeddings
+
+### `reid/` package (upgraded from single module)
+- `reid/__init__.py`: re-exports everything from `_reid_impl.py` (legacy
+  HSV+HOG) plus the new `DeepAppearanceExtractor`.
+- `reid/deep_embedder.py`: ONNX-based deep person re-ID model (OSNet /
+  MobileNet-ReID) with automatic fallback to HSV+HOG when no model file
+  is available. Auto-detects model input shape (NCHW/NHWC) and input
+  resolution from the ONNX graph.
+- Config: `reid.deep_model` (path to .onnx), `reid.deep_size` ([W, H]),
+  `reid.deep_threshold` (cosine threshold for deep matches).
+- API: `GET /api/reid/similarity` (pairwise cosine matrix),
+  `GET /api/reid/embedding-info` (deep vs legacy status).
+
+## Phase 15 — Performance Optimization
+
+### `perf/` package
+- `onnx_export.py`: `export_yolo_to_onnx()` converts ultralytics YOLO to
+  ONNX (opset 17, optional FP16 + simplify). `quantize_onnx_model()` for
+  dynamic/static INT8 quantization. `get_optimal_provider()` auto-detects
+  the best ORT backend (CUDA > TensorRT > CoreML > DirectML > CPU).
+- `batched.py`: `BatchedInferenceEngine` accumulates frames from N cameras
+  into micro-batches and runs a single inference call per batch, amortising
+  GPU warmup and transfer costs.
+- `profiler.py`: `InferenceProfiler` measures per-frame latency (mean,
+  median, p95, p99, FPS) on synthetic frames. `compare()` benchmarks two
+  functions side-by-side. `ProfileResult` dataclass with `.to_dict()`.
+
+## Phase 16 — Interactive Site Map
+
+### Dashboard Map Tab
+- Canvas-based site map with camera positions and FOV cones.
+- Real-time crowd heatmap overlay from analytics WebSocket.
+- Re-ID cross-camera trail visualization (dashed lines between cameras).
+- Click a camera to see its label, FOV, and people seen there.
+- Toggle heatmap and trail layers on/off.
+
 ## Testing strategy
 
 - Unit tests run everywhere with no heavy dependencies.
