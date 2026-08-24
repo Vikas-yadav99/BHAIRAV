@@ -1796,6 +1796,18 @@ function AnalyticsTab({ token }) {
   );
 }
 
+function ApiDocsTab() {
+  return (
+    React.createElement('div', {style: {padding: '20px'}},
+      React.createElement('iframe', {
+        src: '/api-docs.html',
+        style: {width: '100%', height: 'calc(100vh - 120px)', border: '1px solid #21262d', borderRadius: '12px'},
+        title: 'API Documentation'
+      })
+    )
+  );
+}
+
 function App() {
   const [auth, setAuth] = useState(() => {
     try {
@@ -1833,6 +1845,7 @@ function App() {
   if (auth.role === 'analyst' || auth.role === 'admin') tabs.push({ id: 'analytics', label: '📈 Analytics' });
   tabs.push({ id: 'map', label: '🗺 Map' });
   if (auth.role === 'admin') tabs.push({ id: 'users', label: '👥 Users' });
+  tabs.push({ id: 'apidocs', label: '📖 API Docs' });
 
   return (
     <>
@@ -1861,6 +1874,7 @@ function App() {
         {tab === 'audit' && <AuditTab token={auth.token} />}
         {tab === 'analytics' && <AnalyticsTab token={auth.token} />}
         {tab === 'map' && <MapTab token={auth.token} />}
+        {tab === 'apidocs' && <ApiDocsTab />}
         {tab === 'users' && <UsersTab token={auth.token} me={auth.username} />}
       </main>
     </>

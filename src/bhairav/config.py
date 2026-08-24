@@ -338,7 +338,6 @@ class ResponseConfig:
 
 
 @dataclass
-@dataclass
 class HAConfig:
     """Phase 19: high availability settings."""
     enabled: bool = False
@@ -364,6 +363,7 @@ class ComplianceConfig:
     auto_cleanup_interval: float = 3600.0
 
 
+@dataclass
 class AppConfig:
     """Top-level configuration tree, built by load_config() from config.yaml deep-merged over DEFAULTS."""
     detector: str = "blob"  # blob | yolo | auto

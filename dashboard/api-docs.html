@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BHAIRAV API Documentation</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0e17;color:#e0e6ed;line-height:1.6}
+.header{background:linear-gradient(135deg,#1a1f2e,#0d1117);padding:24px 40px;border-bottom:1px solid #21262d}
+.header h1{font-size:24px;color:#58a6ff}
+.header p{color:#8b949e;font-size:14px;margin-top:4px}
+.container{display:flex;min-height:calc(100vh - 80px)}
+.sidebar{width:280px;background:#0d1117;border-right:1px solid #21262d;padding:20px;position:sticky;top:0;height:calc(100vh - 80px);overflow-y:auto}
+.sidebar h3{color:#58a6ff;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:16px 0 8px}
+.sidebar a{display:block;color:#8b949e;text-decoration:none;padding:6px 12px;border-radius:6px;font-size:13px}
+.sidebar a:hover{background:#161b22;color:#58a6ff}
+.m{display:inline-block;width:40px;font-size:10px;font-weight:700;text-align:center;border-radius:3px;margin-right:6px;padding:1px 0}
+.g{background:#1a4731;color:#3fb950}.p{background:#3d2e00;color:#d29922}.w{background:#2d1a47;color:#bc8cff}
+.main{flex:1;padding:32px 40px;max-width:900px}
+.ep{margin-bottom:32px;background:#161b22;border:1px solid #21262d;border-radius:12px;padding:24px}
+.ep h2{font-size:18px;color:#f0f6fc;margin-bottom:4px}
+.ep .d{color:#8b949e;font-size:14px;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:#8b949e;padding:8px 12px;border-bottom:1px solid #21262d}
+td{padding:8px 12px;border-bottom:1px solid #21262d}
+td:first-child{font-family:monospace;color:#58a6ff}
+pre{background:#0d1117;padding:16px;border-radius:8px;overflow-x:auto;font-size:12px;margin:12px 0;border:1px solid #21262d}
+.st{font-size:20px;color:#f0f6fc;margin:40px 0 16px;padding-bottom:8px;border-bottom:1px solid #21262d}
+.b{display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;background:#3d2e00;color:#d29922}
+.bw{background:#2d1a47;color:#bc8cff}
+</style>
+</head>
+<body>
+<div class="header"><h1>BHAIRAV API Documentation</h1><p>v0.17.0</p></div>
+<div class="container">
+<nav class="sidebar">
+<h3>Core</h3><a href="#health"><span class="m g">GET</span>/health</a><a href="#login"><span class="m p">POST</span>/api/login</a><a href="#status"><span class="m g">GET</span>/api/status</a>
+<h3>Alerts</h3><a href="#alerts"><span class="m g">GET</span>/api/alerts</a><a href="#evidence"><span class="m g">GET</span>/api/evidence</a>
+<h3>Analytics</h3><a href="#summary"><span class="m g">GET</span>/api/analytics/summary</a><a href="#hotspots"><span class="m g">GET</span>/api/analytics/hotspots</a><a href="#recs"><span class="m g">GET</span>/api/analytics/recommendations</a>
+<h3>Re-ID</h3><a href="#reid"><span class="m g">GET</span>/api/reid/similarity</a>
+<h3>Response</h3><a href="#ptz"><span class="m p">POST</span>/api/ptz/{id}/move</a><a href="#reports"><span class="m g">GET</span>/api/reports</a><a href="#tenants"><span class="m g">GET</span>/api/tenants</a>
+<h3>WebSocket</h3><a href="#ws"><span class="m w">WS</span>/ws/stream</a><a href="#ws"><span class="m w">WS</span>/ws/alerts</a><a href="#ws"><span class="m w">WS</span>/ws/analytics</a>
+<h3>Ops</h3><a href="#metrics"><span class="m g">GET</span>/api/metrics</a>
+</nav>
+<div class="main">
+<div class="st">Core</div>
+<div class="ep" id="health"><h2><span class="m g">GET</span> /health</h2><div class="d">Public health check.</div><pre>{"status": "ok", "version": "0.17.0"}</pre></div>
+<div class="ep" id="login"><h2><span class="m p">POST</span> /api/login <span class="b">Auth</span></h2><div class="d">Authenticate, receive JWT.</div><pre>{"token": "eyJ...", "role": "admin"}</pre></div>
+<div class="ep" id="status"><h2><span class="m g">GET</span> /api/status <span class="b">Auth</span></h2><div class="d">System status, camera health, evidence counts.</div></div>
+<div class="st">Alerts & Evidence</div>
+<div class="ep" id="alerts"><h2><span class="m g">GET</span> /api/alerts <span class="b">Auth</span></h2><div class="d">Recent alerts. Filter by severity, rule, zone, camera.</div></div>
+<div class="ep" id="evidence"><h2><span class="m g">GET</span> /api/evidence <span class="b">Auth</span></h2><div class="d">List evidence clips with filters.</div></div>
+<div class="st">Analytics (Phase 12+18)</div>
+<div class="ep" id="summary"><h2><span class="m g">GET</span> /api/analytics/summary</h2><div class="d">Natural-language alert summary.</div><pre>{"text": "5 critical alerts in Zone A...", "severity": "red"}</pre></div>
+<div class="ep" id="hotspots"><h2><span class="m g">GET</span> /api/analytics/hotspots</h2><div class="d">Ranked risk zones with predictions.</div><pre>{"hotspots": [{"zone": "Zone A", "risk_score": 0.92, "trend": "rising"}]}</pre></div>
+<div class="ep" id="recs"><h2><span class="m g">GET</span> /api/analytics/recommendations</h2><div class="d">Resource allocation recommendations.</div><pre>{"recommendations": [{"action": "deploy_officer", "priority": "high"}]}</pre></div>
+<div class="st">Re-ID (Phase 9+14)</div>
+<div class="ep" id="reid"><h2><span class="m g">GET</span> /api/reid/similarity</h2><div class="d">Pairwise cosine similarity matrix.</div></div>
+<div class="st">Response (Phase 17)</div>
+<div class="ep" id="ptz"><h2><span class="m p">POST</span> /api/ptz/{camera_id}/move <span class="b">Admin</span></h2><div class="d">PTZ camera control.</div><table><tr><th>Field</th><th>Type</th><th>Description</th></tr><tr><td>command</td><td>string</td><td>pan_left/pan_right/tilt_up/tilt_down/zoom_in/zoom_out/stop</td></tr><tr><td>speed</td><td>float</td><td>0.0-1.0</td></tr></table></div>
+<div class="ep" id="reports"><h2><span class="m g">GET</span> /api/reports <span class="b">Auth</span></h2><div class="d">Incident reports with timeline.</div></div>
+<div class="ep" id="tenants"><h2><span class="m g">GET</span> /api/tenants <span class="b">Admin</span></h2><div class="d">Multi-tenant management.</div></div>
+<div class="st">WebSocket Feeds</div>
+<div class="ep" id="ws"><h2><span class="m w">WS</span> /ws/stream?camera=X&amp;token=Y <span class="bw b">WebSocket</span></h2><div class="d">Live video frames + overlays.</div><pre>Send: {"type":"subscribe","camera":"CAM-01"}
+Receive: {"type":"frame","jpeg":"base64...","alerts":[...]}</pre></div>
+<div class="ep"><h2><span class="m w">WS</span> /ws/alerts?token=Y <span class="bw b">WebSocket</span></h2><div class="d">Real-time alert feed.</div></div>
+<div class="ep"><h2><span class="m w">WS</span> /ws/analytics?token=Y <span class="bw b">WebSocket</span></h2><div class="d">Analytics: forecast, heatmap, trends, hotspot, NL summary, recommendations.</div></div>
+<div class="st">Ops</div>
+<div class="ep" id="metrics"><h2><span class="m g">GET</span> /api/metrics <span class="b">Auth</span></h2><div class="d">Prometheus metrics.</div></div>
+</div></div></body></html>

@@ -1,4 +1,4 @@
-# BHAIRAV - production stack: HA app replicas + nginx (TLS termination) + PostgreSQL
+# BHAIRAV - production stack: HA app replicas + Redis + PostgreSQL + nginx (TLS)
 #
 #   docker compose -f deploy/docker-compose.yml up -d --scale app=2
 #
@@ -34,6 +34,7 @@ services:
       BHAIRAV_METRICS_TOKEN: ${BHAIRAV_METRICS_TOKEN:-}
       # PostgreSQL (Phase 8): evidence + audit + users + plate watchlist.
       # Remove to stay on the file store (single replica only).
+      REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql://bhairav:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/bhairav
     volumes:
       - bhairav-data:/data
@@ -42,6 +43,8 @@ services:
       - "8000"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks: [bhairav]
     # uncomment when the source is an RTSP camera
@@ -65,6 +68,17 @@ services:
       - ./certs:/etc/nginx/certs:ro
     depends_on:
       - app
+    networks: [bhairav]
+
+  redis:  # Phase 19: HA clustering + session store
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks: [bhairav]
 
   db:   # PostgreSQL evidence store (Phase 8)
@@ -141,6 +155,7 @@ services:
 
 volumes:
   bhairav-data:
+  redis-data:
   pg-data:
   backups:
   prom-data:
