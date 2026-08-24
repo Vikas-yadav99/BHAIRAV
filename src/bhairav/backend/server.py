@@ -1281,6 +1281,69 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
             audit.append(claims["sub"], "ws_disconnect",
                          f"live-stream camera={camera or 'all'}")
 
+    # ---- Phase 21-24: 3D Scene, Traffic, Investigation, NLP Query ----------
+
+    @app.get("/api/scene3d")
+    def scene3d_snapshot(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        return {"cameras": [], "persons": [], "zones": [], "events": []}
+
+    @app.get("/api/traffic")
+    def traffic_snapshot(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        from bhairav.traffic import TrafficAnalyzer
+        return {"zones": [], "total_vehicles_tracked": 0}
+
+    @app.get("/api/timeline")
+    def timeline_events(limit: int = Query(50, ge=1, le=500),
+                        event_type: str | None = None,
+                        zone: str | None = None,
+                        claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        from bhairav.investigation import InvestigationTimeline
+        tl = InvestigationTimeline()
+        return {"events": tl.query(event_type=event_type, zone=zone, limit=limit)}
+
+    @app.post("/api/cases")
+    def create_case(payload: dict = Body(...),
+                    claims: dict = Depends(require(PERM_USERS))):
+        from bhairav.investigation import InvestigationTimeline
+        tl = InvestigationTimeline()
+        case = tl.create_case(
+            title=payload.get("title", "Untitled"),
+            summary=payload.get("summary", ""),
+            assigned_to=payload.get("assigned_to", ""),
+        )
+        return case.to_dict()
+
+    @app.get("/api/cases")
+    def list_cases(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        from bhairav.investigation import InvestigationTimeline
+        tl = InvestigationTimeline()
+        return {"cases": tl.list_cases()}
+
+    @app.get("/api/cases/{case_id}")
+    def get_case(case_id: str,
+                 claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        from bhairav.investigation import InvestigationTimeline
+        tl = InvestigationTimeline()
+        case = tl.get_case(case_id)
+        if not case:
+            raise HTTPException(status_code=404, detail="Case not found")
+        return case
+
+    @app.post("/api/cases/{case_id}/export")
+    def export_case(case_id: str,
+                    claims: dict = Depends(require(PERM_USERS))):
+        from bhairav.investigation import InvestigationTimeline
+        tl = InvestigationTimeline()
+        return tl.export_case(case_id)
+
+    @app.post("/api/nlp/query")
+    def nlp_query(payload: dict = Body(...),
+                  claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        from bhairav.nlp import NLPQueryEngine
+        engine = NLPQueryEngine()
+        result = engine.query(payload.get("query", ""))
+        return result.to_dict()
+
     # ---- Phase 18: NL Summaries + Predictive Hotspot + Resource Allocation --
 
     @app.get("/api/analytics/summary")

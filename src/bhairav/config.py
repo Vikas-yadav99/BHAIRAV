@@ -338,6 +338,29 @@ class ResponseConfig:
 
 
 @dataclass
+class TrafficConfig:
+    """Phase 22: traffic analytics settings."""
+    enabled: bool = True
+    speed_threshold_free: float = 40.0
+    speed_threshold_light: float = 25.0
+    window_sec: float = 300.0
+
+
+@dataclass
+class InvestigationConfig:
+    """Phase 23: investigation timeline settings."""
+    enabled: bool = True
+    store_path: str = "output/cases.json"
+    max_events: int = 10000
+
+
+@dataclass
+class NLPConfig:
+    """Phase 24: NLP query settings."""
+    enabled: bool = True
+
+
+@dataclass
 class HAConfig:
     """Phase 19: high availability settings."""
     enabled: bool = False
@@ -381,6 +404,9 @@ class AppConfig:
     edge: EdgeConfig = field(default_factory=EdgeConfig)
     federation: FederationConfig = field(default_factory=FederationConfig)
     response: ResponseConfig = field(default_factory=ResponseConfig)
+    traffic: TrafficConfig = field(default_factory=TrafficConfig)
+    investigation: InvestigationConfig = field(default_factory=InvestigationConfig)
+    nlp: NLPConfig = field(default_factory=NLPConfig)
     ha: HAConfig = field(default_factory=HAConfig)
     compliance: ComplianceConfig = field(default_factory=ComplianceConfig)
 
