@@ -288,6 +288,23 @@ class AnalyticsConfig:
     officer_pool: int = 10
     recommendation_ttl: float = 600.0
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "AnalyticsConfig":
+        return cls(
+            enabled=bool(d.get("enabled", True)),
+            forecast_horizon_sec=float(d.get("forecast_horizon_sec", 10.0)),
+            heatmap_grid_w=int(d.get("heatmap_grid_w", 32)),
+            heatmap_grid_h=int(d.get("heatmap_grid_h", 24)),
+            heatmap_decay_sec=float(d.get("heatmap_decay_sec", 30.0)),
+            trend_window_sec=float(d.get("trend_window_sec", 900.0)),
+            summarizer_window_sec=float(d.get("summarizer_window_sec", 300.0)),
+            hotspot_window_sec=float(d.get("hotspot_window_sec", 3600.0)),
+            hotspot_decay_sec=float(d.get("hotspot_decay_sec", 600.0)),
+            hotspot_min_alerts=int(d.get("hotspot_min_alerts", 2)),
+            officer_pool=int(d.get("officer_pool", 10)),
+            recommendation_ttl=float(d.get("recommendation_ttl", 600.0)),
+        )
+
 
 
 @dataclass
@@ -302,6 +319,19 @@ class EdgeConfig:
     fps_cap: int = 10
     push_interval_sec: float = 5.0
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "EdgeConfig":
+        return cls(
+            enabled=bool(d.get("enabled", False)),
+            upstream_url=str(d.get("upstream_url", "")),
+            mqtt_broker=str(d.get("mqtt_broker", "")),
+            mqtt_port=int(d.get("mqtt_port", 1883)),
+            mqtt_topic=str(d.get("mqtt_topic", "bhairav/alerts")),
+            store_path=str(d.get("store_path", "output/edge_alerts.jsonl")),
+            fps_cap=int(d.get("fps_cap", 10)),
+            push_interval_sec=float(d.get("push_interval_sec", 5.0)),
+        )
+
 
 @dataclass
 class FederationConfig:
@@ -311,6 +341,18 @@ class FederationConfig:
     peers: list = field(default_factory=list)
     secret: str = ""
     push_interval_sec: float = 10.0
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "FederationConfig":
+        return cls(
+            enabled=bool(d.get("enabled", False)),
+            site_id=str(d.get("site_id", "site-1")),
+            peers=list(d.get("peers", [])),
+            secret=str(d.get("secret", "")),
+            push_interval_sec=float(d.get("push_interval_sec", 10.0)),
+        )
+
+
 @dataclass
 class ResponseConfig:
     """Phase 17: threat response settings."""
@@ -345,6 +387,15 @@ class TrafficConfig:
     speed_threshold_light: float = 25.0
     window_sec: float = 300.0
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "TrafficConfig":
+        return cls(
+            enabled=bool(d.get("enabled", True)),
+            speed_threshold_free=float(d.get("speed_threshold_free", 40.0)),
+            speed_threshold_light=float(d.get("speed_threshold_light", 25.0)),
+            window_sec=float(d.get("window_sec", 300.0)),
+        )
+
 
 @dataclass
 class InvestigationConfig:
@@ -353,11 +404,23 @@ class InvestigationConfig:
     store_path: str = "output/cases.json"
     max_events: int = 10000
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "InvestigationConfig":
+        return cls(
+            enabled=bool(d.get("enabled", True)),
+            store_path=str(d.get("store_path", "output/cases.json")),
+            max_events=int(d.get("max_events", 10000)),
+        )
+
 
 @dataclass
 class NLPConfig:
     """Phase 24: NLP query settings."""
     enabled: bool = True
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "NLPConfig":
+        return cls(enabled=bool(d.get("enabled", True)))
 
 
 @dataclass
@@ -370,6 +433,18 @@ class HAConfig:
     balancer_strategy: str = "least_conn"
     health_check_interval: float = 5.0
     failure_threshold: int = 3
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "HAConfig":
+        return cls(
+            enabled=bool(d.get("enabled", False)),
+            redis_url=str(d.get("redis_url", "")),
+            heartbeat_interval=float(d.get("heartbeat_interval", 5.0)),
+            expire_after=float(d.get("expire_after", 15.0)),
+            balancer_strategy=str(d.get("balancer_strategy", "least_conn")),
+            health_check_interval=float(d.get("health_check_interval", 5.0)),
+            failure_threshold=int(d.get("failure_threshold", 3)),
+        )
 
 
 @dataclass
@@ -384,6 +459,20 @@ class ComplianceConfig:
     consent_store_path: str = "output/consent.json"
     deletion_store_path: str = "output/deletion_requests.json"
     auto_cleanup_interval: float = 3600.0
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ComplianceConfig":
+        return cls(
+            enabled=bool(d.get("enabled", True)),
+            evidence_retention_days=int(d.get("evidence_retention_days", 90)),
+            alert_retention_days=int(d.get("alert_retention_days", 365)),
+            reid_retention_days=int(d.get("reid_retention_days", 180)),
+            analytics_retention_days=int(d.get("analytics_retention_days", 30)),
+            logs_retention_days=int(d.get("logs_retention_days", 180)),
+            consent_store_path=str(d.get("consent_store_path", "output/consent.json")),
+            deletion_store_path=str(d.get("deletion_store_path", "output/deletion_requests.json")),
+            auto_cleanup_interval=float(d.get("auto_cleanup_interval", 3600.0)),
+        )
 
 
 @dataclass
@@ -426,7 +515,16 @@ class AppConfig:
                    reid=ReidConfig.from_dict(d.get("reid", {})),
                    evidence=EvidenceConfig.from_dict(d.get("evidence", {})),
                    cameras=[CameraConfig.from_dict(c) for c in d.get("cameras", [])],
-                   audio=AudioConfig.from_dict(d.get("audio", {})))
+                   audio=AudioConfig.from_dict(d.get("audio", {})),
+                   analytics=AnalyticsConfig.from_dict(d.get("analytics", {})),
+                   edge=EdgeConfig.from_dict(d.get("edge", {})),
+                   federation=FederationConfig.from_dict(d.get("federation", {})),
+                   response=ResponseConfig.from_dict(d.get("response", {})),
+                   traffic=TrafficConfig.from_dict(d.get("traffic", {})),
+                   investigation=InvestigationConfig.from_dict(d.get("investigation", {})),
+                   nlp=NLPConfig.from_dict(d.get("nlp", {})),
+                   ha=HAConfig.from_dict(d.get("ha", {})),
+                   compliance=ComplianceConfig.from_dict(d.get("compliance", {})))
 
 
 def load_config(path: str | Path = "config.yaml") -> AppConfig:

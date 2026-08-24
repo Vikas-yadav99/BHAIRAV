@@ -23,7 +23,7 @@ class TestBackupVerifier:
             "tables": [{"name": "users", "columns": [{"name": "id", "type": "integer"}], "rows": [[1]]}],
         }
         import datetime
-        stamp = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
         path = tmp_path / f"bhairav_{stamp}.backup.json.gz"
         path.write_bytes(gzip.compress(json.dumps(payload).encode()))
 
@@ -43,7 +43,7 @@ class TestBackupVerifier:
     def test_verify_wrong_format(self, tmp_path):
         payload = {"format": "wrong", "version": 1, "tables": []}
         import datetime
-        stamp = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
         path = tmp_path / f"bhairav_{stamp}.backup.json.gz"
         path.write_bytes(gzip.compress(json.dumps(payload).encode()))
         v = BackupVerifier(str(tmp_path))
