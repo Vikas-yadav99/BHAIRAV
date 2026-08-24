@@ -338,6 +338,32 @@ class ResponseConfig:
 
 
 @dataclass
+@dataclass
+class HAConfig:
+    """Phase 19: high availability settings."""
+    enabled: bool = False
+    redis_url: str = ""
+    heartbeat_interval: float = 5.0
+    expire_after: float = 15.0
+    balancer_strategy: str = "least_conn"
+    health_check_interval: float = 5.0
+    failure_threshold: int = 3
+
+
+@dataclass
+class ComplianceConfig:
+    """Phase 20: GDPR/privacy compliance settings."""
+    enabled: bool = True
+    evidence_retention_days: int = 90
+    alert_retention_days: int = 365
+    reid_retention_days: int = 180
+    analytics_retention_days: int = 30
+    logs_retention_days: int = 180
+    consent_store_path: str = "output/consent.json"
+    deletion_store_path: str = "output/deletion_requests.json"
+    auto_cleanup_interval: float = 3600.0
+
+
 class AppConfig:
     """Top-level configuration tree, built by load_config() from config.yaml deep-merged over DEFAULTS."""
     detector: str = "blob"  # blob | yolo | auto
@@ -355,6 +381,8 @@ class AppConfig:
     edge: EdgeConfig = field(default_factory=EdgeConfig)
     federation: FederationConfig = field(default_factory=FederationConfig)
     response: ResponseConfig = field(default_factory=ResponseConfig)
+    ha: HAConfig = field(default_factory=HAConfig)
+    compliance: ComplianceConfig = field(default_factory=ComplianceConfig)
 
     @classmethod
     def from_dict(cls, d: dict) -> "AppConfig":
