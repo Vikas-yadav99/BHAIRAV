@@ -1281,4 +1281,50 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
             audit.append(claims["sub"], "ws_disconnect",
                          f"live-stream camera={camera or 'all'}")
 
+    # ---- Phase 18: NL Summaries + Predictive Hotspot + Resource Allocation --
+
+    @app.get("/api/analytics/summary")
+    def analytics_summary(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """Natural-language summary of recent alerts."""
+        from bhairav.analytics import NLAlertSummarizer
+        s = NLAlertSummarizer()
+        # feed from recent alerts
+        for a in recent[-100:]:
+            s.observe(a)
+        return s.snapshot()
+
+    @app.get("/api/analytics/hotspots")
+    def analytics_hotspots(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """Ranked predictive hotspot zones."""
+        from bhairav.analytics import PredictiveHotspot
+        h = PredictiveHotspot()
+        for a in recent[-200:]:
+            h.observe(
+                a.get("timestamp", 0),
+                zone=a.get("zone"),
+                severity=a.get("severity", "yellow"),
+                rule=a.get("rule", ""),
+            )
+        return h.snapshot()
+
+    @app.get("/api/analytics/recommendations")
+    def analytics_recommendations(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """Resource allocation recommendations."""
+        from bhairav.analytics import ResourceAllocator, PredictiveHotspot
+        h = PredictiveHotspot()
+        zone_counts: dict = {}
+        for a in recent[-200:]:
+            z = a.get("zone", "(unknown)")
+            zone_counts[z] = zone_counts.get(z, 0) + 1
+            h.observe(
+                a.get("timestamp", 0),
+                zone=z,
+                severity=a.get("severity", "yellow"),
+                rule=a.get("rule", ""),
+            )
+        allocator = ResourceAllocator()
+        return {"recommendations": [r.to_dict() for r in allocator.analyze(
+            h.snapshot().get("hotspots", []), zone_counts
+        )]}
+
     return app

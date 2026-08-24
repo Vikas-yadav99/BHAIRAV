@@ -271,13 +271,22 @@ class CameraConfig:
 
 @dataclass
 class AnalyticsConfig:
-    """Phase 12: predictive analytics settings."""
+    """Phase 12 + 18: predictive analytics + NL summaries + hotspot."""
     enabled: bool = True
     forecast_horizon_sec: float = 10.0
     heatmap_grid_w: int = 32
     heatmap_grid_h: int = 24
     heatmap_decay_sec: float = 30.0
     trend_window_sec: float = 900.0
+    # Phase 18: NL summaries
+    summarizer_window_sec: float = 300.0
+    # Phase 18: predictive hotspot
+    hotspot_window_sec: float = 3600.0
+    hotspot_decay_sec: float = 600.0
+    hotspot_min_alerts: int = 2
+    # Phase 18: resource allocation
+    officer_pool: int = 10
+    recommendation_ttl: float = 600.0
 
 
 

@@ -259,6 +259,22 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,               we
                     _zone_counts[z.name] = sum(
                         1 for t in state.tracks if t.is_person
                         and _point_in_zone(t.centroid, z.points_norm))
+                # Phase 18: feed hotspot + summarizer
+                for _af_a in frame_alerts:
+                    _hotspot.observe(
+                        frame_ts,
+                        zone=getattr(_af_a, 'zone', None),
+                        severity=_af_a.severity.value if hasattr(_af_a.severity, 'value') else str(_af_a.severity),
+                        rule=_af_a.rule,
+                    )
+                    _summarizer.observe(_af_a.to_dict() if hasattr(_af_a, 'to_dict') else {"rule": _af_a.rule, "severity": _af_a.severity.value if hasattr(_af_a.severity, 'value') else str(_af_a.severity), "zone": getattr(_af_a, 'zone', None), "camera": cam.id, "timestamp": frame_ts})
+                # Phase 18: generate recommendations every 30 frames
+                if analytics_engine._frame_count % 30 == 0:
+                    hs_snap = _hotspot.snapshot()
+                    _allocator.analyze(
+                        hs_snap.get("hotspots", []),
+                        _hotspot.zone_alerts if hasattr(_hotspot, 'zone_alerts') else {},
+                    )
                 analytics_engine.observe_frame(
                     timestamp=state.timestamp,
                     person_count=sum(1 for t in state.tracks if t.is_person),
@@ -269,7 +285,11 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,               we
                 # push analytics snapshot every 30 frames (~1s)
                 if state.frame_id % 30 == 0:
                     analytics_engine.update_heatmap()
-                    hub.publish_analytics(analytics_engine.snapshot())
+                    _snap = analytics_engine.snapshot()
+                    _snap["summarizer"] = _summarizer.snapshot()
+                    _snap["hotspot"] = _hotspot.snapshot()
+                    _snap["resource"] = _allocator.snapshot()
+                    hub.publish_analytics(_snap)
             except Exception as exc:
                 print(f"[{cam.id}] analytics error: {exc}", flush=True)
         # person re-id: fold this frame's person tracks into the shared gallery
@@ -437,6 +457,7 @@ def main() -> int:
     webhook_url = cfg.backend.webhook_url
     # Phase 12: predictive analytics engine
     from bhairav.analytics import AnalyticsEngine
+    from bhairav.analytics import NLAlertSummarizer, PredictiveHotspot, ResourceAllocator
     analytics_cfg = getattr(cfg, 'analytics', None)
     analytics_engine = None
     if analytics_cfg and getattr(analytics_cfg, 'enabled', True):
@@ -449,6 +470,19 @@ def main() -> int:
             trend_window_sec=getattr(_ag, 'trend_window_sec', 900.0),
         )
         print(f"[analytics] predictive analytics: ENABLED (forecast={getattr(_ag, 'forecast_horizon_sec', 10.0)}s ahead, heatmap={getattr(_ag, 'heatmap_grid_w', 32)}x{getattr(_ag, 'heatmap_grid_h', 24)})")
+    # Phase 18: NL summaries + predictive hotspot + resource allocation
+    _summarizer = NLAlertSummarizer(window_sec=getattr(analytics_cfg, 'summarizer_window_sec', 300.0) if analytics_cfg else 300.0)
+    _hotspot = PredictiveHotspot(
+        window_sec=getattr(analytics_cfg, 'hotspot_window_sec', 3600.0) if analytics_cfg else 3600.0,
+        decay_sec=getattr(analytics_cfg, 'hotspot_decay_sec', 600.0) if analytics_cfg else 600.0,
+        min_alerts=getattr(analytics_cfg, 'hotspot_min_alerts', 2) if analytics_cfg else 2,
+    )
+    _allocator = ResourceAllocator(
+        officer_pool=getattr(analytics_cfg, 'officer_pool', 10) if analytics_cfg else 10,
+        cameras=[c.id for c in cams],
+        recommendation_ttl=getattr(analytics_cfg, 'recommendation_ttl', 600.0) if analytics_cfg else 600.0,
+    )
+    print(f"[analytics] Phase 18: NL summaries + hotspot + resource allocation: ENABLED")
     from bhairav.backend.notify import channels_from_config
     notifier = channels_from_config(webhook_url, cfg.backend.alert_channels)
     if notifier:
