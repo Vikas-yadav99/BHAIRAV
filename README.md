@@ -1,4 +1,10 @@
-# BHAIRAV — v0.17.0
+# BHAIRAV — v0.20.0
+
+> **Honest Status**: This is a well-structured **proof-of-concept** with 27 phases of
+> modular architecture. The synthetic demo works end-to-end. Real camera detection
+> requires YOLO + ultralytics. Person re-ID uses HSV+HOG (not deep learning) unless
+> you provide an ONNX model. The security modules exist but need production hardening.
+> This compiles and passes 636 tests -- it is not yet production-deployed.
 
 **B**ehavioral **H**azard **A**nalysis & **I**ntelligent **R**eal-time **A**ction **V**igilance
 
@@ -26,6 +32,29 @@ python -m pytest tests/ -v
 ```
 
 ---
+
+## What This Is
+
+- A **modular surveillance pipeline**: detection -> tracking -> behavior rules -> alerts -> evidence
+- **12 behavior detectors**: intrusion, fall, fight, chase, loitering, trespass, anomaly, stolen vehicle, abandoned object, accident, riot, crowd density
+- **Audio analytics**: gunshot, glass break, scream detection (synthetic or live mic)
+- **Person re-identification** across cameras (HSV+HOG, optional deep ONNX)
+- **Predictive analytics**: crowd forecasting, hotspot prediction, NL summaries
+- **Event bus** connecting escalation, PTZ tracking, integrations, federation, audit
+- **Unified identity**: single person_id across all subsystems
+- **Bounded data collections**: memory-safe for long-running deployments
+- **GDPR compliance**: retention policies, consent management, right-to-deletion
+- **Edge deployment**: single-camera agent with offline storage + upstream push
+- **Mobile PWA**: offline-capable with push notifications and field dispatch
+
+## What This Is NOT
+
+- **Not trained on real surveillance data** -- the blob detector generates synthetic frames
+- **Not tested on real cameras** -- YOLO integration exists but has not been validated on CCTV footage
+- **Not production-hardened** -- security modules exist but are not fully wired into middleware
+- **Not audited for real-world false positive rates** -- fight/fall/chase detection uses heuristics, not ML
+- **Not load-tested at city scale** -- the load test benchmarks Python overhead, not real network I/O
+- **Not a replacement for commercial surveillance** -- this is a research prototype / hackathon project
 
 ## Architecture Overview
 
