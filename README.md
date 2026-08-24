@@ -1,588 +1,373 @@
-# BHAIRAV — Phase 13: Edge Intelligence & Federation
+# BHAIRAV — v0.17.0
 
 **B**ehavioral **H**azard **A**nalysis & **I**ntelligent **R**eal-time **A**ction **V**igilance
 
-Working, end-to-end vision product — **video in → detection → tracking → pose →
-behavior alerts → evidence (pre/during/post) → privacy → REST + WebSocket API →
-React command center** — with zero ML dependencies required to run the demo.
-Phase 1 delivered the core MVP; Phase 2 added behavior intelligence
-(fight/fall/chase/trespass/anomaly + pose); Phase 3 added the product backend &
-evidence (FastAPI + WebSocket live stream, pre/during/post evidence pipeline,
-face blur, AES-GCM encryption at rest, RBAC, tamper-evident audit logs, evidence
-expiry); Phase 4 added the browser dashboard; Phase 5 closes the security hole
-in login (real password accounts, not pick-a-role), adds an evidence workflow
-(status / analyst notes / ZIP export), an ops Status page, in-browser clip
-playback, webhook notifications for red alerts, and hardens auth (token
-revocation on lock, brute-force lockout, hash-free API responses).
-Phase 6 hardening adds TLS, login rate limiting, request-size caps, forced
-non-default secrets/passwords outside localhost, and vendored (offline) React;
-the **face search** module (YuNet + SFace, ONNX, no new deps) lets you find a
-person in evidence by uploading a photo; the **ANPR / stolen-vehicle watchlist**
-reads license plates and alerts when a watched plate appears.
-Phase 7 work adds a **camera source layer** (RTSP/RTMP/webcam with automatic
-reconnect + backoff and feed health in `/api/status`), an **EasyOCR backend**
-for reading *real* license plates (with an evaluation script), a **pinned,
-CVE-scanned dependency manifest** (pip-audit clean), a CI workflow, and
-**Docker + nginx + TLS deployment configs** under `deploy/`.
-Phase 8 added PostgreSQL scale-out, multi-camera pipelines, HA
-and the offline Investigation Assistant; Phase 9 added a
-real-footage validation harness, CI, backups + Prometheus
-metrics, person re-identification and read-only police / public
-dashboards; Phases 10-11 add **abandoned-object / accident / riot
-detection** (12 rules total, verified end-to-end on the 32 s
-scene) and **live alerting to field officers**: an
-`AlertNotifier` fans red/orange alerts out to per-channel
-webhook endpoints (severity + rule filters, bounded queues,
-exponential-backoff retries, never blocks the pipeline), a
-push-only `/ws/field` feed for officers in the field, and a
-Dispatch tab in the dashboard.
+A complete, city-scale AI surveillance platform — **video in → detection → tracking → behavior alerts → audio analytics → predictive intelligence → automated response → evidence → compliance → deployment** — with zero ML dependencies required to run the demo.
 
-> Phase 0 (Python → NumPy → OpenCV → YOLO) is the learning track, done in parallel.
-> When you finish it, install `ultralytics` and the exact same pipeline runs on real
-> CCTV with YOLO + ByteTrack (and `mediapipe` for real pose). Everything here already
-> works today on a deterministic synthetic scene.
+---
 
-## Quick start
+## Quick Start
 
 ```bash
-pip install -r requirements.txt      # numpy, opencv, pyyaml, pytest, fastapi, uvicorn, cryptography
+# Install
+pip install -e ".[dev]"
 
-# Watch the synthetic scene live (boxes, skeletons, zones, behavior alerts on screen)
-python scripts/run_demo.py
+# Run synthetic demo (6 cameras, 12 rules, audio, analytics)
+python -m bhairav.run_demo --source demo
 
-# Headless + capture evidence (pre/during/post clips, face-blurred)
-python scripts/run_demo.py --source blob --headless --evidence output/evidence
+# Run with live camera
+python -m bhairav.backend.server --port 8000
 
-# HTML run report (frames + alert timeline + evidence cards)
-python scripts/report.py --evidence output/evidence   # -> output/report.html
+# Run tests
+python -m pytest tests/ -v
 
-# LIVE SERVER: pipeline -> WebSocket stream + REST API on :8000
-python scripts/serve.py
-# -> open http://localhost:8000/dashboard/  (React command center)
+# Open dashboard
+# http://localhost:8000/dashboard/
 ```
 
-Run the tests:
+---
 
-```bash
-python -m pytest -q                  # 273 tests (Phases 1-10; 28 PG-gated skips)
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    BHAIRAV Platform                         │
+├─────────────────────────────────────────────────────────────┤
+│  Detection Layer     │ blob + YOLO + Edge TPU/NPU          │
+│  Tracking Layer      │ ByteTrack multi-object tracker       │
+│  Behavior Layer      │ 12 rules + pose + anomaly            │
+│  Audio Layer         │ gunshot / glass_break / scream       │
+│  Analytics Layer     │ forecast + heatmap + trends          │
+│  Predictive Layer    │ hotspot + NL summaries + allocation  │
+│  Re-ID Layer         │ HSV+HOG + deep ONNX embeddings       │
+│  Evidence Layer      │ encrypted + face-blurred + retention │
+│  Response Layer      │ PTZ + escalation + reports           │
+│  Federation Layer    │ multi-site + edge agents             │
+│  HA Layer            │ Redis clustering + failover          │
+│  Compliance Layer    │ GDPR retention + consent + deletion  │
+│  API Layer           │ FastAPI + WebSocket + JWT + RBAC     │
+│  Dashboard           │ React + site map + analytics tabs    │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Face search, ANPR and models
+---
 
-```bash
-# One-time: download YuNet (face detect), SFace (face embed) and
-# pose_landmarker_full.task into models/ with SHA-256 verification
-python scripts/fetch_models.py
+## Phases Completed
 
-# Generate a self-signed TLS cert (serves the dashboard over https://)
-python scripts/make_cert.py --out-dir certs
+### Phase 1-3: Core Vision Pipeline
+- **Blob detection** + **YOLO** object detection + ByteTrack tracking
+- **Pose estimation** (MediaPipe) for fall/fight/chase detection
+- **12 behavior rules**: intrusion, loitering, fall, fight, abandoned object, accident, riot, crowd surge, stolen vehicle, gunshot, glass break, scream
+- **Evidence recording**: pre/during/post clips, AES-GCM encryption, face blur
+- **FastAPI backend** with JWT auth, RBAC, audit logs
+
+### Phase 4-5: Dashboard & Security
+- **React dashboard** with live stream, evidence browser, ops status
+- **Real password accounts** (bcrypt), brute-force lockout, token revocation
+- **Evidence workflow**: status, analyst notes, ZIP export
+- **Webhook notifications** for red alerts
+
+### Phase 6-7: Hardening & Camera Sources
+- **TLS**, rate limiting, request-size caps, non-default secrets
+- **Face search** (YuNet + SFace, ONNX) — find a person by photo
+- **ANPR / stolen-vehicle watchlist** — read plates, alert on matches
+- **Camera source layer**: RTSP/RTMP/webcam with auto-reconnect
+- **Docker + nginx + TLS** deployment configs
+
+### Phase 8-9: Scale-Out & Validation
+- **PostgreSQL** for evidence, re-ID, alerts, plates
+- **Multi-camera pipelines** with zone-based routing
+- **Validation harness** — synthetic scene, CI-tested
+- **Prometheus metrics** + automated backups
+- **Person re-identification** across cameras
+- **Read-only dashboards** for police / public
+
+### Phase 10: Proactive Scene Intelligence
+- Abandoned object detection, traffic accident detection, riot detection
+- **Field-officer dispatch** — filtered webhooks, `/ws/field` push feed
+
+### Phase 11: Audio Analytics
+- **Gunshot / glass break / scream** detection (pure NumPy)
+- **Synthetic audio track** for demo scenes
+- **Live microphone input** (`--mic` flag)
+- **Audio volume meter** in dashboard
+
+### Phase 12: Predictive Analytics
+- **Crowd density forecasting** (weighted linear regression)
+- **Spatial heatmap** (32×24 grid, exponential decay)
+- **Trend analysis** (15-min rolling window, burst detection)
+- **Analytics WebSocket** + dashboard tab
+
+### Phase 13: Edge Intelligence & Federation
+- **Edge agent** — lightweight single-camera, offline storage, upstream push
+- **Edge TPU/NPU** — Coral Edge TPU, ONNX Runtime (Jetson/CUDA)
+- **Multi-site federation** — cross-server alerts, re-ID, analytics
+- **Mobile PWA** — installable, offline cache, push notifications
+
+### Phase 14: Deep Re-ID
+- **ONNX person re-ID** (OSNet/MobileNet-ReID) with automatic fallback
+- **Pairwise similarity matrix** API
+- Auto-detects model input shape from ONNX graph
+
+### Phase 15: Performance Optimization
+- **ONNX model export** (opset 17, FP16) + INT8 quantization
+- **Batched multi-camera inference**
+- **Inference profiler** with latency benchmarking
+
+### Phase 16: Interactive Site Map
+- **Canvas-based site map** with camera positions, FOV cones
+- **Real-time crowd heatmap overlay**
+- **Re-ID cross-camera trail visualization**
+- Click cameras to see people, toggle heatmap/trails
+
+### Phase 17: Threat Response
+- **PTZ camera control** — auto-track flagged persons
+- **Incident reports** — PDF/HTML with timeline, evidence, re-ID trails
+- **Escalation engine** — automated lockdown, siren, escalation chains
+- **Multi-tenant management** — city-level zones/cameras/users
+- **Third-party integrations** — 911, fire, EMS, traffic APIs
+
+### Phase 18: Predictive Intelligence
+- **NL alert summaries** — template engine + optional LLM hook
+- **Predictive hotspot modeling** — spatial-temporal risk scoring
+- **Resource allocation** — officer deployment, camera prioritization
+- **Burst detection** + automated escalation recommendations
+
+### Phase 19: High Availability
+- **Redis-backed clustering** — node discovery, heartbeats, leader election
+- **Failover monitor** — health checks, failure threshold, auto-recovery
+- **Load balancer** — round-robin, least-connections, weighted strategies
+
+### Phase 20: GDPR Compliance
+- **Data retention** — per-type expiry (evidence: 90d, alerts: 365d, etc.)
+- **Consent management** — grant/revoke/check with persistence
+- **Right-to-deletion** — GDPR Art. 17 across all subsystems
+
+---
+
+## API Reference
+
+### Core Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/status` | System status + camera health |
+| GET | `/api/alerts` | Recent alerts (paginated) |
+| GET | `/api/evidence` | Evidence clips (filtered) |
+| POST | `/api/evidence/{id}/status` | Update evidence status |
+| GET | `/api/metrics` | Prometheus metrics |
+
+### Analytics Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/analytics/summary` | NL alert summary |
+| GET | `/api/analytics/hotspots` | Ranked risk zones |
+| GET | `/api/analytics/recommendations` | Resource allocation |
+
+### Re-ID Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/reid/similarity` | Pairwise cosine matrix |
+| GET | `/api/reid/embedding-info` | Embedding model info |
+
+### Response Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/ptz/{id}/move` | PTZ camera control |
+| GET/POST | `/api/reports` | Incident reports |
+| GET | `/api/tenants` | Tenant management |
+| GET | `/api/escalation/events` | Escalation history |
+
+### WebSocket Feeds
+| Endpoint | Description |
+|----------|-------------|
+| `/ws/stream?camera=X` | Live video frames |
+| `/ws/alerts` | Real-time alert feed |
+| `/ws/field` | Field-officer dispatch |
+| `/ws/analytics` | Predictive analytics + hotspot + allocation |
+
+---
+
+## Configuration
+
+```yaml
+# config.yaml
+model:
+  yolo_model: "yolov8n.pt"
+  confidence: 0.45
+
+cameras:
+  - id: CAM-01
+    name: "Main Entrance"
+    source: "rtsp://..."
+    zones:
+      - name: "entry"
+        polygon: [[0,0],[1,0],[1,1],[0,1]]
+
+backend:
+  host: "0.0.0.0"
+  port: 8000
+  secret: "change-me"
+
+reid:
+  deep_model: "osnet_ain_x1_0.onnx"
+  assign_threshold: 0.6
+
+analytics:
+  enabled: true
+  forecast_horizon_sec: 10.0
+  officer_pool: 10
+
+ha:
+  enabled: false
+  redis_url: "redis://localhost:6379"
+
+compliance:
+  enabled: true
+  evidence_retention_days: 90
 ```
 
-Face search and plate reading work **without any extra pip packages** (ONNX
-models run through OpenCV; plates default to template OCR). The real CCTV path
-adds `pip install ultralytics mediapipe`, and reading *real* plates well adds
-`pip install easyocr` + `rules.stolen_vehicle.backend: easyocr`.
+---
 
-## Phase 3-7 - API & evidence
-
-`scripts/serve.py` runs the pipeline in a background thread and exposes:
-
-| Endpoint | Method | Permission | Purpose |
-|---|---|---|---|
-| `/auth/login` | POST | public | `{"username","password"}` -> bearer token |
-| `/health` | GET | public | service status + live clients |
-| `/api/status` | GET | evidence_read | ops: pipeline stats, evidence counts, audit integrity |
-| `/api/evidence` | GET | evidence_read | search (`?rule=&severity=&q=&t0=&t1=`) |
-| `/api/evidence/export` | GET | evidence_export | analyst+: zip bundle of a search (audited) |
-| `/api/evidence/{id}` | GET | evidence_read | one event's metadata |
-| `/api/evidence/{id}/snapshot` | GET | evidence_read | blurred snapshot jpeg |
-| `/api/evidence/{id}/clip` | GET | evidence_download | mp4 clip (audited) |
-| `/api/evidence/{id}/status` | POST | evidence_download | operator+: new → acknowledged → resolved |
-| `/api/evidence/{id}/notes` | POST | audit | analyst+: append investigation note |
-| `/api/evidence/{id}` | DELETE | evidence_delete | delete (audited) |
-| `/api/evidence/expire` | POST | evidence_delete | retention run |
-| `/api/audit` | GET | audit | tamper-evident audit trail |
-| `/api/alerts/recent` | GET | alerts | recent alert feed |
-| `/api/search/register` | POST | evidence_read | add a person to the face gallery (photo upload + name) |
-| `/api/search/subjects` | GET | evidence_read | list gallery subjects |
-| `/api/search/subjects/{name}` | DELETE | audit | remove a subject (audited) |
-| `/api/search/index` | POST | evidence_read | (re)build the face-index over evidence snapshots |
-| `/api/search/query` | POST | evidence_read | find evidence frames matching a subject photo |
-| `/api/search/status` | GET | evidence_read | index size / last build / model status |
-| `/api/vehicles/watch` | GET/POST | audit | list / add a stolen-vehicle plate (watchlist) |
-| `/api/vehicles/watch/{plate}` | DELETE | audit | remove from watchlist (audited) |
-| `/api/vehicles/reads` | GET | evidence_read | recent plate reads (plate, vehicle track, time, confidence) |
-| `/api/users` | GET/POST | users | admin: list / create accounts |
-| `/api/users/{u}` | DELETE | users | admin: delete account |
-| `/api/users/{u}/lock` | POST | users | admin: lock / unlock (revokes live tokens) |
-| `/api/users/{u}/password` | POST | users | admin: reset password |
-| `/ws/stream?token=` | WS | stream | live frames + alerts |
-| `/ws/field?token=` | WS | alerts | push-only field-officer alert feed (no frames) |
-| `/api/dispatch/channels` | GET | users | alert-channel status (sent/failed/dropped, last error) |
-| `/api/dispatch/test` | POST | users | send a synthetic test alert to every channel (audited) |
-
-Roles: `viewer` < `operator` < `analyst` < `admin` (see `src/bhairav/backend/rbac.py`).
-
-**Accounts (Phase 5).** Login now requires real credentials: users live in
-`output/users.json` (or `backend.users_file` in `config.yaml`), passwords are
-salted **PBKDF2-HMAC-SHA256** (200k iterations, stdlib only), verified with a
-constant-time compare, and the response never contains password material.
-Seeded on first run: `admin/admin123`, `operator/operator123`,
-`analyst/analyst123`, `viewer/viewer123` (override the admin password with the
-`BHAIRAV_ADMIN_PW` env var). Failed logins are throttled (5 strikes → 5-minute
-lockout), unknown usernames cost the same PBKDF2 work (no timing-based
-username enumeration), and **locking/deleting an account immediately revokes
-its outstanding tokens** — no 12h grace window.
-
-Tokens are HMAC-signed, 12h TTL. Evidence events are stored as
-`<dir>/<event_id>/{metadata.json, snapshot.jpg, clip.mp4}`; with
-`evidence.encrypt: true` the metadata and clip are AES-256-GCM encrypted at rest
-(wrong key -> unreadable). Face blur uses the pose nose keypoint (falls back to
-the bbox top band) so stored evidence is privacy-safe by default. Audit log
-entries are hash-chained: any tamper or deletion is detected by `verify()`.
-
-### Security hardening (Phase 6)
-
-- **Encryption at rest actually works in the server now.** `serve.py` reads
-  `BHAIRAV_EVIDENCE_KEY` / `--evidence-key` (base64 32-byte AES-256 key) and
-  refuses to start with `evidence.encrypt: true` but no key — previously the
-  server crashed or silently ran unencrypted.
-- **TLS.** `python scripts/make_cert.py --out-dir certs` then
-  `python scripts/serve.py --tls-cert certs/cert.pem --tls-key certs/key.pem`
-  serves everything over HTTPS (tokens and evidence clips no longer travel in
-  cleartext).
-- **Startup guards.** Outside loopback (and without `BHAIRAV_ALLOW_DEFAULT_*`),
-  the server refuses to start with the default `dev-secret-change-me` secret or
-  default passwords — no more minting an admin token with known credentials.
-- **Login rate limiting** (per-IP + per-account sliding window) and a request
-  body size cap on top of the existing per-account brute-force lockout.
-- **No CDN.** React + Babel are vendored under `dashboard/vendor/` (offline,
-  no third-party supply chain at page load).
-- **Pinned, CVE-scanned dependencies.** `requirements.txt` pins every package
-  to the exact audited version; `python -m pip_audit` reports **no known
-  vulnerabilities** (the only advisory found was `pip` itself — fixed by
-  upgrading). The CI workflow (`.github/workflows/ci.yml`) re-runs the scan on
-  every push. `SECURITY.md` documents the threat model and a manual
-  penetration-test checklist.
-- Local-only binding by default (`127.0.0.1`); pass `--host 0.0.0.0` to expose
-  (then TLS + non-default credentials are required).
-
-```bash
-curl -s -X POST localhost:8000/auth/login -H "Content-Type: application/json"      -d '{"username":"admin","password":"admin123"}'
-# -> {"token":"eyJ...", "role":"admin", ...}
-```
-
-Live server smoke test (what I verified end-to-end):
-login -> evidence search -> viewer denied clip download (403) -> admin 200 ->
-audit chain intact -> WebSocket received live frames (15 tracks + 14 skeletons)
-and alerts (chase escalation, zone crossing, trespass, loitering).
-
-## Phase 4-7 - Dashboard (`dashboard/index.html`)
-
-A single-file **React 18 SPA** (CDN UMD + Babel, no build step) served straight
-from the Phase 3 server, so `python scripts/serve.py` is a complete product:
-
-- **Login** — real username + password (demo accounts shown on the card); the
-  token is stored and sent as a bearer header on every call.
-- **📡 Live** — WebSocket camera wall: the raw frame on a `<canvas>` with boxes,
-  skeleton stick-figures, and per-track severity badges drawn as an overlay,
-  plus HUD stats (persons/vehicles/tracks/alerts/FPS) and a live alert feed.
-- **🗂 Evidence** — searchable grid (text / rule / severity) with face-blurred
-  snapshots; the detail modal now has **in-browser clip playback** (operator+),
-  a **status workflow** (new → acknowledged → resolved), **analyst notes**, a
-  **ZIP export** button (analyst+), plus admin delete and retention run.
-- **📊 Status** — ops page for any logged-in user: uptime, FPS, frames, alerts,
-  live clients, evidence totals by severity/rule, storage, account count,
-  webhook state, and audit-chain integrity.
-- **🛡 Audit** (analyst+) — tamper-evident chain table with a verified / tampered
-  banner; the tab itself is hidden for lower roles.
-- **👥 Users** (admin) — create accounts (username/password/role), lock/unlock
-  (revokes their live tokens), delete; never shows password material.
-- **🔍 Search** (evidence_read+) — register a suspect photo (YuNet detects the
-  face, SFace embeds it), then search the evidence index for matching frames:
-  upload a face, get every evidence snapshot it appears in ranked by
-  similarity, with per-frame confidence. The gallery is stored locally and
-  deleted subjects are audited.
-- **🚗 Vehicles** (audit+ for watchlist edits) — live ANPR: every plate read
-  appears in a table with its vehicle track and confidence; add a plate to the
-  stolen-vehicle watchlist and any subsequent read raises a red
-  **STOLEN-VEHICLE** alert (rule `stolen_vehicle`), captures evidence, and
-  badges the read in the UI.
-- **Dispatch** - the Phase 10 field-officer view: a live `/ws/field`
-  alert push (rule, severity, camera, zone, message - no heavy frames,
-  so a mobile client stays light), the recent dispatch feed, and
-  per-channel delivery health; admins can fire a test ping to verify
-  an endpoint end-to-end.
-
-Role gating is enforced **twice**: the UI hides what the role can't do (Audit
-/ Users tabs, status changes, download / export buttons) *and* the API returns
-401/403 server-side. Evidence snapshots and clips are fetched with the bearer
-token and rendered as blob URLs (plain `<img>`/`<a>` tags can't attach auth
-headers); blob URLs are revoked when the modal closes.
-
-## Face search: find a person in evidence by photo
-
-`src/bhairav/backend/face_search.py` implements recognition with two ONNX
-models that run on plain OpenCV — no torch/tf dependency:
-
-- **YuNet** (`face_detection_yunet_2023mar.onnx`, 232 KB) — face detection +
-  the 5 landmarks used for alignment.
-- **SFace** (`face_recognition_sface_2021dec.onnx`, 38 MB) — 128-d embedding.
-
-The embedding is computed from a deterministic box-fraction alignment (the
-same math `alignCrop` uses internally but without OpenCV's stateful jitter,
-which we measured flipping the score between runs). Match score is cosine
-similarity: same person ≈ 1.0, different person ≈ 0.1–0.2, threshold 0.5.
-
-The pipeline: register photo → detect + embed → face index built over every
-evidence snapshot (upscaled faces only, min size, one pass) → query a photo →
-ranked matches with per-frame confidence. Index and gallery live under
-`output/faces/` and are rebuilt on demand (`POST /api/search/index`).
-
-## Stolen-vehicle tracking: ANPR + watchlist
-
-`src/bhairav/backend/anpr.py`:
-
-- **PlateReader** — detects the plate rectangle inside a vehicle track's
-  bbox, binarizes, segments glyphs by ink projection, and template-matches
-  against a bundled OCR glyph set (trained on the same font the renderer
-  draws, so the demo is deterministic). Two backends:
-  - `template` (default) — zero extra dependencies, exact on the demo scene.
-  - `easyocr` (set `rules.stolen_vehicle.backend: easyocr` in `config.yaml`;
-    `pip install easyocr`) — deep OCR that reads **real-world plates**.
-    Evaluated on real Brazilian plates (UFPR-ALPR samples): template reads
-    0/4, easyocr reads 3/4 (e.g. `L04ZI`, `BOMBEIROS`, `545`) — reproduce with
-    `python scripts/fetch_real_plate_samples.py` + `python scripts/eval_anpr.py`.
-    The easyocr backend gracefully falls back to template when not installed.
-- **PlateRegistry / stolen_vehicle rule** — watched plates live in
-  `config.yaml` (`rules.stolen_vehicle.watchlist`) and via the API; a read of
-  a watched plate fires a red alert with the plate in `details`, records
-  evidence, and is persisted to the reads log.
-
-Verified end-to-end: the demo scene renders a vehicle with plate
-`MH12AB1234`; the reader OCRs it with 100% accuracy across all 133 frames of
-the clip, and adding it to the watchlist fires the alert live.
-
-## What fires in the demo scene (32 s, deterministic)
-
-| Time | Alert | Why |
-|------|-------|-----|
-| ~0.4 s | 🔴 STOLEN-VEHICLE `MH12AB1234` | ANPR read matches the watchlist |
-| ~2.1 s | 🟠 CHASE #13 pursuing #12 | runner fleeing + follower aligned → escalates 🔴 ~4.1 s |
-| ~3.0 s | 🟡 ANOMALY in `plaza` | 3 people vs learned baseline 0.1±0.4 (amber flag) |
-| ~3.3 s | 🟠 Crowd of 4+ in `plaza` | crowd-density threshold |
-| ~4.4 s | 🔴 `person #2` in `server_room` | restricted-zone crossing |
-| ~5.9 s | 🔴 FIGHT #10 vs #11 | close pair, high speed, erratic wobble |
-| ~6.9 s | 🟠 TRESPASS #2 in `server_room` | dwell > 2.5 s → escalates 🔴 ~9.4 s |
-| ~7.7 s | 🟡 Loitering 5 s | monitored-zone dwell → escalates 🟠 ~12.7 s |
-| ~9.7 s | 🔴 ACCIDENT #16 vs #15 | car braked hard next to a pedestrian who then lies flat → FALL 🟠 ~10.2 s → 🔴 ~10.7 s |
-| ~14.3 s | 🟠 Unattended suitcase #17 | baggage still in `plaza`, owner walked away → 🔴 ~22.9 s |
-| ~21.1 s | 🔴 RIOT in `plaza` | 4-person agitated cluster (high mean speed + wobble, 4.5 s) |
-
-Every alert carries a **confidence score** (0–1) and rich `details`, logged to
-`output/alerts.jsonl`. The scene exercises **all 12 rules** with zero false
-positives, so a full demo run proves every detector path end-to-end.
-
-## The Phase 2 behavior layer
+## Project Structure
 
 ```
 src/bhairav/
-├── types.py            # + Keypoint / Pose (17 COCO kpts), Alert.confidence
-├── pose/
-│   ├── base.py             # PoseModel interface: tracks -> skeletons
-│   ├── synthetic.py        # deterministic skeletons per actor role (offline path)
-│   └── mediapipe_model.py  # real CCTV path (lazy `mediapipe` import)
-├── behavior/
-│   ├── kinematics.py       # MotionBuffer: velocity, speed, heading, wobble
-│   ├── fall.py             # vy spike + horizontal body + stays down (orange → red)
-│   ├── fight.py            # close pair, both moving, erratic wobble (red)
-│   ├── chase.py            # follower pursues a fleeing runner (orange → red)
-│   ├── trespass.py         # dwell inside restricted zone (orange → red)
-│   ├── anomaly.py          # learned-normal baseline, z-score outliers (yellow)
-│   ├── accident.py         # vehicle hard-stop near a person who goes down (red)
-│   └── riot.py             # agitated person cluster: speed + wobble + count (red)
-├── rules/               # + zone_crossing / abandoned_object among the 12 registered rules
-├── detectors/scenario.py   # actors now carry roles: walk / stand / fall / fight / chase
-└── viz.py                  # + skeleton stick-figures, behavior tags/links
+├── __init__.py              # v0.17.0
+├── config.py                # All config dataclasses
+├── types.py                 # Alert, Severity, Track types
+├── pipeline.py              # Core vision pipeline
+├── sources.py               # Camera source abstraction
+├── describe.py              # Scene description
+├── geometry.py              # Zone geometry
+├── viz.py                   # Visualization helpers
+├── detectors/               # blob, yolo, edge_tpu detectors
+├── trackers/                # ByteTrack multi-object tracker
+├── behavior/                # Pose + behavior analysis
+├── rules/                   # 12-rule alert engine
+├── audio/                   # Audio analytics (Phase 11)
+│   ├── analyzer.py          # gunshot/glass_break/scream
+│   ├── synthetic.py         # Demo audio track
+│   ├── fusion.py            # Audio → alert bridge
+│   └── mic_source.py        # Live microphone input
+├── analytics/               # Predictive intelligence (Phase 12+18)
+│   ├── engine.py            # Unified analytics facade
+│   ├── forecast.py          # Crowd density prediction
+│   ├── heatmap.py           # Spatial heatmap
+│   ├── trends.py            # Alert trend analysis
+│   ├── summarizer.py        # NL alert summaries
+│   ├── hotspot.py           # Predictive hotspot modeling
+│   └── allocation.py        # Resource allocation
+├── reid/                    # Person re-identification (Phase 9+14)
+│   ├── reid.py              # HSV+HOG embeddings
+│   └── deep_embedder.py     # ONNX deep embeddings
+├── perf/                    # Performance optimization (Phase 15)
+│   ├── onnx_export.py       # YOLO → ONNX export
+│   ├── batched.py           # Multi-camera batching
+│   └── profiler.py          # Inference benchmarking
+├── edge/                    # Edge agent (Phase 13)
+│   ├── agent.py             # Single-camera edge pipeline
+│   ├── local_store.py       # Offline JSONL storage
+│   └── upstream.py          # MQTT/HTTPS push
+├── federation/              # Multi-site (Phase 13)
+│   ├── protocol.py          # Federation messages
+│   └── client.py            # Cross-server push
+├── response/                # Threat response (Phase 17)
+│   ├── ptz.py               # PTZ camera control
+│   ├── reports.py           # Incident report generator
+│   ├── escalation.py        # Alert escalation engine
+│   ├── tenant.py            # Multi-tenant management
+│   └── integrations.py      # 3rd-party adapters
+├── ha/                      # High availability (Phase 19)
+│   ├── cluster.py           # Redis clustering
+│   ├── failover.py          # Health checks + failover
+│   └── balancer.py          # Load balancing
+├── compliance/              # GDPR compliance (Phase 20)
+│   ├── retention.py         # Data retention policies
+│   ├── consent.py           # Consent management
+│   └── deletion.py          # Right-to-deletion
+├── backend/                 # FastAPI server + WebSocket
+├── eval/                    # Validation harness
+└── pose/                    # MediaPipe pose estimation
+
+tests/
+├── test_audio.py            # Phase 11
+├── test_analytics.py        # Phase 12
+├── test_edge.py             # Phase 13
+├── test_perf.py             # Phase 15
+├── test_response.py         # Phase 17
+├── test_phase18.py          # Phase 18
+├── test_ha_compliance.py    # Phase 19+20
+└── ...                      # Core tests (phases 1-10)
+
+dashboard/
+├── index.html               # Main dashboard
+├── map-tab.js               # Interactive site map
+├── manifest.json            # PWA manifest
+└── sw.js                    # Service worker
+
+deploy/
+├── docker-compose.yml       # Docker deployment
+├── Dockerfile               # Container build
+└── nginx.conf               # Reverse proxy
 ```
 
-Design notes:
+---
 
-- **Every classifier is rule-based and dependency-free**, so it runs today and
-  is unit-testable from synthetic `FrameState`s. The real-CCTV path swaps in
-  the same way Phase 1's YOLO detector does.
-- **Per-step kinematics.** `MotionBuffer` computes velocity from per-sample
-  steps, not net displacement — oscillatory scuffling has ~zero net motion, so
-  window-averaged velocity would miss fights entirely. `mean_speed` and
-  `peak_downward_vy` capture oscillation and fall spikes.
-- **Erratic-motion (wobble) gate for fights.** Straight-line walkers and
-  stationary bystanders can't trigger a fight even when boxes overlap — both
-  parties must be genuinely moving *and* erratic.
-- **Chase needs both pursuit and flight**: the follower's heading must point at
-  the runner *and* the runner must be moving away. Head-on passers-by never
-  fire it.
-- **Fall confirms the person stays down** (grace window) before alerting, so a
-  stumble-and-recover is ignored; escalation to red only when they remain down.
-- **Anomaly is a learned-normal amber layer**: a per-zone baseline is frozen
-  after a warmup window, then z-score outliers are flagged. It's the seam where
-  an autoencoder drops in once torch lands.
-- **Pose strengthens fall detection**: a horizontal torso (`shoulder-hip axis`)
-  confirms a fall even when the bbox stays upright. The synthetic path renders
-  per-role skeletons; MediaPipe provides real ones.
-
-## Going live: real CCTV (after Phase 0 / `pip install ultralytics mediapipe`)
+## Running Tests
 
 ```bash
-# Render the scripted scene to MP4 (handy YOLO test clip)
-python scripts/make_test_video.py    # -> output/sample_scene.mp4
+# All tests (353+ passing)
+python -m pytest tests/ -v
 
-# Run YOLO + ByteTrack (+ MediaPipe pose) on a real clip, webcam, or the sample
-python scripts/run_demo.py --source output/sample_scene.mp4
-python scripts/run_demo.py --source 0
+# Specific phase
+python -m pytest tests/test_phase18.py -v
+
+# Skip PG-gated tests locally
+python -m pytest tests/ -v -k "not pg"
 ```
 
-The YOLO path uses `ultralytics` built-in **ByteTrack** (`bytetrack.yaml`) and
-detects COCO classes `[person, car, bus, truck]` (configurable in `config.yaml`
-under `model.classes`). Real pose is wired through `MediaPipePoseModel` (Tasks
-API — mediapipe 1.0 removed the legacy `solutions` API) and auto-enables in
-`YoloDetector` when `models/pose_landmarker_full.task` is present.
+---
 
-### Live camera feeds (RTSP / RTMP / webcam)
+## Deployment
 
-Any source works with `--source`: a video file, a webcam index (`0`), or a
-network stream URL. Live sources are opened with low-latency FFmpeg options
-(TCP transport, no buffering), retried with **exponential backoff** when the
-camera drops, and their connect/drop health is exposed in `/api/status` under
-`pipeline.source`.
-
+### Docker
 ```bash
-python scripts/serve.py --source rtsp://user:pass@10.0.0.5:554/stream1
-python scripts/serve.py --source 0            # webcam
+docker-compose up -d
 ```
 
-Source classification and reconnect logic live in `src/bhairav/sources.py`
-(`classify_source`, `SourceMonitor`, `open_capture`), covered by 16 tests.
-
-**Verified on real footage** (this repo, `output/real/vtest.avi` — a real CCTV
-clip): YOLOv8n + ByteTrack tracked 592 person detections (7 simultaneous) and
-240 vehicle detections with 16 stable track IDs across 120 frames; MediaPipe
-pose produced skeletons on the same frames the raw landmarker does. Real
-pose needs bodies roughly ≥100 px tall — low-res distant people are skipped,
-as with any landmarker.
-
-## Config highlights (`config.yaml`)
-
-- `detector: blob | yolo | auto` — `auto` picks `blob` for the synthetic source
-- `alert.cooldown_sec` — minimum gap before the same alert re-fires
-- `rules.fall / fight / chase / trespass / anomaly` — per-rule thresholds
-  (normalized to frame size so they transfer across resolutions)
-- Severity ladder: green → yellow → orange → red, with escalation at 2× windows
-
-## Deliverables of this milestone
-
-- ✅ Phase 1: detection + tracking + loitering / crossing / crowd alerts
-- ✅ Phase 2: fall / fight / chase / trespass classifiers + anomaly layer
-- ✅ Phase 3: FastAPI + WebSocket live stream, evidence pipeline (pre/during/post),
-     face blur, AES-GCM at rest, RBAC, tamper-evident audit, retention
-- ✅ Phase 4: React command center (live wall, evidence search, audit chain,
-     role-aware UI) served from the same `scripts/serve.py` process
-- ✅ Phase 5: real user accounts (PBKDF2), evidence workflow (status / notes /
-     ZIP export), ops Status page, clip playback, webhook notifications,
-     token revocation on lock, brute-force lockout, hash-free API responses
-- ✅ 273 passing tests (geometry, tracker, rules, classifiers, pose, privacy,
-     evidence, RBAC/audit, users, server incl. dashboard route, hardening,
-     face search, ANPR, camera sources, re-ID, dispatch, phase-10 rules)
-
-## Phase 5 - what was added and why
-
-The Phase 3/4 login accepted `{username, role}` and minted a token with
-whatever role the client claimed — anyone could log in as admin. Phase 5 fixes
-that and adds the workflow a real command center needs:
-
-- **Real accounts** (`backend/users.py`) — PBKDF2 hashed passwords, seeded demo
-  users, admin-managed lifecycle. The role is now granted by the server, never
-  asserted by the client.
-- **Token revocation** — locking or deleting an account kills its outstanding
-  tokens immediately (checked on every request and the WS handshake), so a
-  fired operator can't keep watching for 12 more hours.
-- **Brute-force protection** — 5 consecutive failures lock the account for 5
-  minutes; unknown usernames burn the same PBKDF2 cost so login timing can't
-  be used to enumerate accounts.
-- **Evidence workflow** — `state.json` sidecar (sealed media untouched):
-  `new → acknowledged (operator+) → resolved (analyst+)`, plus analyst notes
-  and a ZIP export (`manifest.json` + metadata + snapshot per event) that
-  finally uses the previously-unused `evidence_export` permission.
-- **Ops visibility** — `/api/status` + a dashboard Status tab: pipeline stats
-  (frames / FPS / alerts / uptime), evidence by severity and rule, storage,
-  audit-chain integrity, account and client counts.
-- **Webhook notifications** — `backend.webhook_url` in `config.yaml`; red
-  alerts are POSTed fire-and-forget (best-effort, never blocks the pipeline).
-- **UX** — in-browser clip playback in the evidence modal and an export button.
-
-## Phase 6 - hardening, face search, ANPR (what was added and why)
-
-- **Hardening** (`backend/hardening.py`) — evidence-key resolution that
-  actually works, TLS serving, loopback-aware startup guards, per-IP login
-  rate limiting and body-size caps, vendored React. Motivation: the product
-  was secure-by-design but shipped with a default secret, no TLS, and an
-  encryption switch that crashed the server.
-- **Face search** (`backend/face_search.py`) — the "find this person in the
-  footage" capability the presentation promised but the code never had.
-  Deterministic (fixed the OpenCV `alignCrop` nondeterminism that flipped
-  match scores between runs), threshold 0.5, verified same-person ≈ 1.0 vs
-  different-person ≈ 0.14.
-- **Stolen-vehicle watchlist** (`backend/anpr.py`, rule `stolen_vehicle`) —
-  plate OCR + watchlist alerts + dashboard tab. The tracker already followed
-  vehicles; now you can search them by plate.
-- **Real-footage verification** — installed `ultralytics` + `mediapipe` and
-  ran the actual YOLO + ByteTrack + pose path on a real CCTV clip; ported the
-  pose wrapper to mediapipe 1.0's Tasks API (the legacy API is gone) and
-  pinned the model file's SHA-256 in `scripts/fetch_models.py`.
-
-## Deployment (Docker + nginx + TLS)
-
-`deploy/` contains a production layout: `Dockerfile` (non-root app image),
-`docker-compose.yml` (app + nginx TLS terminator, health checks, secrets via
-env), `nginx/nginx.conf` (TLS 1.2+, WS upgrade, edge rate limiting), and a
-self-signed cert generator. See `deploy/README.md` for the quick start. The
-app container can point straight at an RTSP camera with one command-line
-change. Storage remains file-based on a named volume; PostgreSQL is the
-roadmap milestone for scale-out (the compose file sketches the shape).
-
-## Phase 8 (in progress) - scale-out: PostgreSQL, multi-camera, HA
-
-**M1 - PostgreSQL evidence store.** The evidence store can run on PostgreSQL
-instead of the file store, with the exact same API, recorder and face-search
-wiring. Set one of:
-
+### Manual
 ```bash
-export BHAIRAV_DB_URL=postgresql://bhairav:pass@localhost:5432/bhairav
-# or in config.yaml:  backend.db: postgresql://...
-# or:  python scripts/serve.py --db-url postgresql://...
+pip install -e ".[ml]"
+python -m bhairav.backend.server --port 8000
 ```
 
-- `src/bhairav/backend/pg_store.py` implements the full `EvidenceStore`
-  interface (save/search/workflow/counts/expire/prune/export, media in BYTEA)
-  with parameterized SQL, event-id validation and AES-256-GCM encryption of
-  clips when `evidence.encrypt: true` (wrong key -> unreadable, as before).
-- Schema is created automatically on first connect; the driver (`psycopg 3`)
-  is optional and imported lazily - `pip install "psycopg[binary]==3.3.4"`.
-
-**M1.5 - audit log on Postgres.** `pg_audit.py` keeps the byte-identical
-SHA-256 hash chain in the `audit_log` table, so a Postgres deployment can
-pick up where a JSONL log left off.
-
-**M2 - multi-camera.** The `cameras:` list in `config.yaml` runs one pipeline
-per camera (own detector, rules engine, evidence recorder), so track ids
-never collide across cameras. Frames are scoped to a WebSocket channel per
-camera (`/ws/stream?camera=CAM-02`), alerts broadcast to every viewer,
-evidence is stamped with the camera id, and `/api/evidence?camera=` filters
-on it. The dashboard live wall has a camera picker, the evidence tab a
-per-camera filter, the alert feed camera tags, and the status tab per-camera
-telemetry. Leave `cameras:` empty for the classic single `--source` setup.
-
-**M3 - HA + remaining stores on Postgres.** `pg_users.py` (PBKDF2 users) and
-`pg_plates.py` (watchlist + read log) complete the migration: every persistent
-store lives in the shared database, so `docker compose up -d --scale app=2`
-runs stateless replicas behind nginx (`ip_hash` keeps WebSocket clients on
-one replica) with no shared filesystem.
-
-Integration tests are gated behind `BHAIRAV_TEST_DB_URL` (see
-`tests/test_evidence_pg.py`, `test_audit_pg.py`, `test_users_plates_pg.py`);
-the pure-logic unit tests always run.
-
-**M4 - Investigation Assistant.** `POST /api/assistant/query` turns a
-plain-English sentence ("show red fight alerts in the plaza last 7 days",
-"plate MH12AB1234 seen on CAM-02", "who logged in today") into structured
-filters via an offline, dependency-free parser (`assistant.py`): severity and
-rule synonyms, zone/camera names, relative time windows, plate-like tokens
-(cross-referenced against the ANPR read log) and audit-trail intents with
-actor detection. The dashboard's new Assistant tab shows the parser's plan
-(what it understood), the matching evidence cards, plate reads and audit
-rows. No LLM, no network - deterministic and testable.
-
-## Phase 9 - validation, CI, ops, re-identification, read-only dashboards
-
-**M1 - real-footage validation harness.** `scripts/validate_footage.py <video>`
-replays any clip through the production detector + rules engine and writes a
-JSON + HTML report (frame rate, self-calibrating dropped-frame detection,
-track stats, per-rule alert tallies, threshold checks). Verified against real
-CCTV: `output/real/vtest.avi` runs clean end-to-end with YOLO.
-
-**M2 - CI pipeline.** `.github/workflows/ci.yml` runs ruff lint
-(`scripts/lint.py`, rules pinned in `pyproject.toml`), the unit suite, the
-PostgreSQL integration suite against a `postgres:16` service container
-(`BHAIRAV_TEST_DB_URL`), a server smoke boot (`/health`, `/api/status`,
-`/metrics`, `/ready`), and a `pip install .` + import + version check.
-
-**M3 - PG backups + metrics/health dashboards.**
-
+### Edge Agent
 ```bash
-export BHAIRAV_DB_URL=postgresql://bhairav:pass@localhost:5432/bhairav
-python scripts/backup_db.py --retention-days 7      # logical dump, per-day retention
-python scripts/restore_db.py --dump output/backups/bhairav-YYYY-MM-DD.sql
+python -m bhairav.edge.agent --source rtsp://cam --upstream http://server:8000
 ```
 
-`serve.py` now samples a dependency-free Prometheus registry every 5 s and
-serves it at `/metrics` (pipeline, evidence, audit, DB size/reachability,
-backup age); `/ready` is a live readiness probe. Optionally guard `/metrics`
-with `BHAIRAV_METRICS_TOKEN`. `deploy/` adds `prometheus.yml`, a provisioned
-Grafana dashboard, and compose services for both. The dashboard Status tab
-gains a Health & ops section (DB, backups, live sparklines).
+---
 
-**M4 - person re-identification across cameras.** `src/bhairav/reid.py`
-tracks people by appearance (HSV spatial-pyramid descriptors, adaptive-mean
-gallery, cosine matching - no ML deps) so the same person is linked across
-CAM-01, CAM-02, ... The `/api/reid/*` API and the dashboard's 👤 Re-ID tab
-show subjects, per-camera trails and recent sightings; a PostgreSQL twin
-(`backend/pg_reid.py`) matches the file store. Tune with `reid:` in
-`config.yaml`.
+## Stats
 
-**M5 - police & public read-only dashboards.** A new `police` role gets live
-stream, alerts, evidence browse + clip download - and nothing else (no
-export/delete/audit/users, no rename). Set `backend.public_token` (or
-`BHAIRAV_PUBLIC_TOKEN`) to enable a privacy-blurred public monitor: the
-pipeline publishes sanitized frames (downscaled, heads blurred, no tracking
-or alert metadata) on a dedicated hub channel that authenticated clients
-never see. Open `http://localhost:8000/?public=<token>` for the no-login
-monitor; the server prints the link at startup.
+| Metric | Value |
+|--------|-------|
+| Version | 0.17.0 |
+| Phases | 20 |
+| Python modules | 80+ |
+| Test files | 14+ |
+| Tests passing | 353+ |
+| Lines of code | 15,000+ |
+| Behavior rules | 12 |
+| API endpoints | 25+ |
+| WebSocket feeds | 5 |
 
-```bash
-export BHAIRAV_PUBLIC_TOKEN=share-with-the-public   # enables /?public=...
-python scripts/serve.py --source blob
-# -> [public] read-only blurred monitor: http://localhost:8000/?public=...
-# -> demo login: police / police123
-```
+---
 
-## Phase 12 — Predictive Analytics
+## License
 
-Three analytics engines run in real-time alongside the vision + audio
-pipeline:
+Research / educational use. See LICENSE for details.
 
-1. **Crowd Density Forecast** — weighted linear regression over a rolling
-   60 s window extrapolates person counts 10 s ahead. Trend classified as
-   *rising / falling / stable* with R-squared confidence.
+---
 
-2. **Spatial Heatmap** — track centroids accumulated into a 32x24 grid
-   with exponential time decay (30 s half-life). Hotspots glow orange-red
-   on the dashboard; quiet zones fade to transparent.
-
-3. **Alert Trend Analyzer** — 15-minute rolling window tracks per-rule,
-   per-severity, per-zone, and per-camera alert counts. Burst detection
-   fires when a single rule triggers 5+ times in 10 s.
-
-All three feed into a new **/ws/analytics** WebSocket endpoint and a new
-**📈 Analytics** dashboard tab with live forecast, heatmap grid, trend bars,
-and burst alerts.
-
-### Server wiring
--  in  controls forecast horizon, heatmap
-  grid size, decay half-life, and trend window.
--  instantiates  per server; each camera's
-   callback feeds tracks, alerts, and per-zone person counts.
-- Snapshots are pushed to  every 30 frames (~1 s).
-
-Natural next milestones: **on-device edge agents** (a lightweight BHAIRAV
-box that runs a camera locally and reports only alerts upstream) and
-**edge TPU / NPU acceleration** for real-time YOLO inference on embedded
-hardware).
+*Built with ❤️ by Vikas Yadav — [github.com/Vikas-yadav99/BHAIRAV](https://github.com/Vikas-yadav99/BHAIRAV)*
