@@ -226,6 +226,28 @@ table.tbl td.muted { color: var(--muted); }
 .sighting img { width: 100%; height: 90px; object-fit: cover; border-radius: 6px; display: block; }
 .sighting-thumb { width: 100%; height: 90px; border-radius: 6px; background: repeating-linear-gradient(45deg, #1e293b, #1e293b 8px, #0f172a 8px, #0f172a 16px); }
 .desc-search { display: flex; gap: 8px; margin: 14px 0 2px; }
+
+/* --- Responsive Mobile --- */
+@media (max-width: 768px) {
+  .topbar { flex-wrap: wrap; padding: 8px 12px; }
+  .brand { font-size: 16px !important; }
+  .brand span { display: none; }
+  .tabs { gap: 2px; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  .tab { padding: 6px 10px !important; font-size: 11px !important; white-space: nowrap; }
+  .spacer { display: none; }
+  .pill { display: none; }
+  .user { font-size: 11px; }
+  main { padding: 8px !important; }
+  .stat-card .v { font-size: 20px !important; }
+  .feed-item { padding: 8px !important; }
+  table.tbl { font-size: 11px; }
+  table.tbl td, table.tbl th { padding: 6px 8px !important; }
+  .card { padding: 12px !important; }
+  .nav-mobile { display: flex !important; }
+}
+@media (min-width: 769px) {
+  .nav-mobile { display: none !important; }
+}
 </style>
 </head>
 <body>
@@ -1808,6 +1830,36 @@ function ApiDocsTab() {
   );
 }
 
+
+// --- Error Boundary (catches rendering crashes) ---
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error('Dashboard error:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        React.createElement('div', {style:{padding:40,textAlign:'center',color:'#ef4444'}},
+          React.createElement('h2', null, 'Something went wrong'),
+          React.createElement('p', {style:{color:'#94a3b8'}}, this.state.error?.message || 'Unknown error'),
+          React.createElement('button', {
+            onClick: () => this.setState({hasError:false,error:null}),
+            style:{padding:'8px 16px',background:'#1e293b',color:'#e2e8f0',border:'1px solid #334155',borderRadius:8,cursor:'pointer',marginTop:12}
+          }, 'Try Again')
+        )
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function App() {
   const [auth, setAuth] = useState(() => {
     try {
@@ -1881,7 +1933,7 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(ErrorBoundary, null, React.createElement(App)));
 </script>
 </body>
 </html>
