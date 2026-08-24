@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#00e5ff">
+  <title>BHAIRAV Mobile</title>
+  <link rel="manifest" href="/dashboard/manifest.json">
+  <style>
+    :root { --bg: #0a0e1a; --panel: #111827; --cyan: #00e5ff; --red: #ff3d3d;
+            --green: #22c55e; --yellow: #eab308; --orange: #f97316;
+            --text: #e2e8f0; --muted: #64748b; --border: #1e293b; --radius: 12px; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           -webkit-font-smoothing: antialiased; overflow-x: hidden; padding-bottom: 70px; }
+    .header { position: sticky; top: 0; z-index: 100; background: rgba(10,14,26,0.95); backdrop-filter: blur(12px);
+              padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
+              border-bottom: 1px solid var(--border); }
+    .header h1 { font-size: 18px; font-weight: 700; color: var(--cyan); }
+    .header .status { font-size: 11px; padding: 4px 10px; border-radius: 20px; }
+    .header .online { background: rgba(34,197,94,0.15); color: var(--green); }
+    .header .offline { background: rgba(255,61,61,0.15); color: var(--red); }
+    .page { display: none; padding: 12px 16px; }
+    .page.active { display: block; }
+    .nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+           background: rgba(17,24,39,0.98); backdrop-filter: blur(12px);
+           border-top: 1px solid var(--border); display: flex; justify-content: space-around;
+           padding: 8px 0; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+    .nav-btn { display: flex; flex-direction: column; align-items: center; gap: 2px;
+               background: none; border: none; color: var(--muted); font-size: 10px; cursor: pointer;
+               padding: 4px 12px; border-radius: 8px; transition: all 0.2s; }
+    .nav-btn.active { color: var(--cyan); }
+    .nav-btn .icon { font-size: 20px; }
+    .card { background: var(--panel); border-radius: var(--radius); padding: 16px;
+            margin-bottom: 12px; border: 1px solid var(--border); }
+    .card h3 { font-size: 14px; color: var(--cyan); margin-bottom: 10px; }
+    .alert-item { background: var(--panel); border-radius: 10px; padding: 12px;
+                  margin-bottom: 8px; border-left: 3px solid var(--red); cursor: pointer; }
+    .alert-item.warning { border-left-color: var(--yellow); }
+    .alert-item.info { border-left-color: var(--cyan); }
+    .alert-item .type { font-weight: 600; font-size: 13px; }
+    .alert-item .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .alert-item .actions { display: flex; gap: 8px; margin-top: 8px; }
+    .btn { padding: 6px 14px; border-radius: 8px; border: none; font-size: 12px;
+           font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .btn-primary { background: var(--cyan); color: var(--bg); }
+    .btn-danger { background: var(--red); color: white; }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .camera-feed { background: var(--panel); border-radius: var(--radius); padding: 12px;
+                   margin-bottom: 12px; border: 1px solid var(--border); }
+    .camera-feed .name { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+    .camera-feed canvas { width: 100%; border-radius: 8px; background: #000; aspect-ratio: 16/9; }
+    .camera-feed .stats { display: flex; gap: 12px; margin-top: 8px; font-size: 11px; color: var(--muted); }
+    .profile-section { display: flex; flex-direction: column; gap: 16px; }
+    .profile-avatar { width: 80px; height: 80px; border-radius: 50%; background: var(--cyan);
+                      display: flex; align-items: center; justify-content: center;
+                      font-size: 32px; font-weight: 700; color: var(--bg); margin: 0 auto 16px; }
+    .setting-row { display: flex; justify-content: space-between; align-items: center;
+                   padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .setting-row label { font-size: 14px; }
+    .toggle { width: 48px; height: 28px; border-radius: 14px; background: var(--border);
+              position: relative; cursor: pointer; transition: background 0.3s; }
+    .toggle.on { background: var(--cyan); }
+    .toggle::after { content: ''; position: absolute; width: 22px; height: 22px;
+                     border-radius: 50%; background: white; top: 3px; left: 3px;
+                     transition: transform 0.3s; }
+    .toggle.on::after { transform: translateX(20px); }
+    .pull-indicator { text-align: center; padding: 8px; color: var(--muted); font-size: 12px; display: none; }
+    .pull-indicator.show { display: block; }
+    .volume-meter { height: 6px; background: var(--border); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+    .volume-meter .fill { height: 100%; background: var(--cyan); border-radius: 3px; transition: width 0.1s; }
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat-box { background: var(--bg); border-radius: 8px; padding: 12px; text-align: center; }
+    .stat-box .num { font-size: 24px; font-weight: 800; color: var(--cyan); }
+    .stat-box .label { font-size: 10px; color: var(--muted); text-transform: uppercase; margin-top: 4px; }
+    .offline-banner { background: rgba(255,61,61,0.15); color: var(--red); padding: 8px 16px;
+                      text-align: center; font-size: 12px; display: none; }
+    .offline-banner.show { display: block; }
+    @media (min-width: 768px) { body { max-width: 480px; margin: 0 auto; } }
+  </style>
+</head>
+<body>
+  <div class="offline-banner" id="offlineBanner">⚡ You are offline — alerts cached locally</div>
+  <div class="header">
+    <h1>🔱 BHAIRAV</h1>
+    <span class="status online" id="connStatus">● Online</span>
+  </div>
+
+  <!-- ALERTS PAGE -->
+  <div class="page active" id="page-alerts">
+    <div class="pull-indicator" id="pullIndicator">↻ Pull to refresh</div>
+    <div class="stats-grid" style="margin-bottom: 12px;">
+      <div class="stat-box"><div class="num" id="criticalCount">0</div><div class="label">Critical</div></div>
+      <div class="stat-box"><div class="num" id="totalAlerts">0</div><div class="label">Total Alerts</div></div>
+    </div>
+    <div id="alertsList"><div class="card" style="text-align:center;color:var(--muted)">Loading alerts...</div></div>
+  </div>
+
+  <!-- CAMERAS PAGE -->
+  <div class="page" id="page-cameras">
+    <h2 style="font-size:16px;margin-bottom:12px">📷 Camera Feeds</h2>
+    <div id="cameraGrid"><div class="card" style="text-align:center;color:var(--muted)">Loading cameras...</div></div>
+  </div>
+
+  <!-- DISPATCH PAGE -->
+  <div class="page" id="page-dispatch">
+    <h2 style="font-size:16px;margin-bottom:12px">🚨 Field Dispatch</h2>
+    <div id="dispatchList"><div class="card" style="text-align:center;color:var(--muted)">No active dispatches</div></div>
+  </div>
+
+  <!-- AUDIO PAGE -->
+  <div class="page" id="page-audio">
+    <h2 style="font-size:16px;margin-bottom:12px">🔊 Audio Monitor</h2>
+    <div class="card">
+      <h3>Live Audio Level</h3>
+      <div class="volume-meter"><div class="fill" id="audioMeter" style="width:0%"></div></div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--muted)">
+        <span>dB</span><span id="audioLevel">-∞</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Audio Alerts</h3>
+      <div id="audioAlerts" style="font-size:13px;color:var(--muted)">No audio events detected</div>
+    </div>
+  </div>
+
+  <!-- PROFILE PAGE -->
+  <div class="page" id="page-profile">
+    <h2 style="font-size:16px;margin-bottom:12px">👤 Profile & Settings</h2>
+    <div class="profile-section">
+      <div class="profile-avatar" id="userAvatar">?</div>
+      <div class="card" style="text-align:center">
+        <div id="userName" style="font-size:16px;font-weight:700">Loading...</div>
+        <div id="userRole" style="font-size:12px;color:var(--muted);margin-top:4px">—</div>
+      </div>
+      <div class="card">
+        <h3>Preferences</h3>
+        <div class="setting-row">
+          <label>Push Notifications</label>
+          <div class="toggle on" id="togglePush" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="setting-row">
+          <label>Sound Alerts</label>
+          <div class="toggle on" id="toggleSound" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="setting-row">
+          <label>Vibration</label>
+          <div class="toggle on" id="toggleVibrate" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="setting-row">
+          <label>Auto-refresh Feeds</label>
+          <div class="toggle on" id="toggleRefresh" onclick="this.classList.toggle('on')"></div>
+        </div>
+        <div class="setting-row">
+          <label>Dark Mode</label>
+          <div class="toggle on" id="toggleDark" onclick="this.classList.toggle('on')"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Data & Storage</h3>
+        <div class="setting-row">
+          <label>Offline Cache</label>
+          <span style="font-size:12px;color:var(--muted)" id="cacheSize">0 MB</span>
+        </div>
+        <div class="setting-row">
+          <label>Clear Cache</label>
+          <button class="btn btn-outline" onclick="clearCache()">Clear</button>
+        </div>
+      </div>
+      <button class="btn btn-danger" style="width:100%;padding:12px;margin-top:8px" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <div class="nav">
+    <button class="nav-btn active" onclick="switchPage('alerts',this)"><span class="icon">🔔</span>Alerts</button>
+    <button class="nav-btn" onclick="switchPage('cameras',this)"><span class="icon">📷</span>Cameras</button>
+    <button class="nav-btn" onclick="switchPage('dispatch',this)"><span class="icon">🚨</span>Dispatch</button>
+    <button class="nav-btn" onclick="switchPage('audio',this)"><span class="icon">🔊</span>Audio</button>
+    <button class="nav-btn" onclick="switchPage('profile',this)"><span class="icon">👤</span>Profile</button>
+  </div>
+
+  <script>
+    // ---- Page Navigation ----
+    function switchPage(name, btn) {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('page-' + name).classList.add('active');
+      btn.classList.add('active');
+    }
+
+    // ---- Token from login ----
+    const TOKEN = localStorage.getItem('bhairav_token') || '';
+    const API = window.location.origin;
+
+    // ---- Connection status ----
+    let ws = null, retryCount = 0;
+    function updateStatus(online) {
+      const el = document.getElementById('connStatus');
+      const banner = document.getElementById('offlineBanner');
+      el.className = 'status ' + (online ? 'online' : 'offline');
+      el.textContent = online ? '● Online' : '○ Offline';
+      banner.className = 'offline-banner' + (online ? '' : ' show');
+    }
+
+    // ---- Alerts WebSocket ----
+    function connectAlerts() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${proto}//${location.host}/ws/live`);
+      ws.onopen = () => { updateStatus(true); retryCount = 0; };
+      ws.onmessage = (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          if (d.alerts) renderAlerts(d.alerts);
+          if (d.stats) renderStats(d.stats);
+          if (d.cameras) renderCameras(d.cameras);
+        } catch(err) {}
+      };
+      ws.onclose = () => {
+        updateStatus(false);
+        retryCount++;
+        setTimeout(connectAlerts, Math.min(2000 * retryCount, 15000));
+      };
+    }
+
+    // ---- Render Alerts ----
+    function renderAlerts(alerts) {
+      const el = document.getElementById('alertsList');
+      if (!alerts || !alerts.length) { el.innerHTML = '<div class="card" style="text-align:center;color:var(--muted)">No alerts</div>'; return; }
+      el.innerHTML = alerts.slice(0, 50).map(a => {
+        const severity = a.severity === 'critical' ? '' : a.severity === 'high' ? ' warning' : ' info';
+        const ts = new Date(a.ts * 1000).toLocaleTimeString();
+        return `<div class="alert-item${severity}" onclick="viewAlert('${a.id}')">
+          <div class="type">${a.type || 'alert'}</div>
+          <div class="meta">${a.camera || 'camera'} · ${ts} · ${a.severity || 'normal'}</div>
+          <div class="actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation();dispatchAlert('${a.id}')">🚨 Dispatch</button>
+            <button class="btn btn-outline" onclick="event.stopPropagation();dismissAlert('${a.id}')">✕</button>
+          </div>
+        </div>`;
+      }).join('');
+      const crit = alerts.filter(a => a.severity === 'critical').length;
+      document.getElementById('criticalCount').textContent = crit;
+      document.getElementById('totalAlerts').textContent = alerts.length;
+      // Cache alerts for offline
+      cacheAlerts(alerts);
+    }
+
+    function renderStats(stats) {
+      // Update audio meter if available
+      if (stats.audioLevel !== undefined) {
+        const pct = Math.min(100, Math.max(0, (stats.audioLevel + 60) * 100 / 60));
+        document.getElementById('audioMeter').style.width = pct + '%';
+        document.getElementById('audioLevel').textContent = stats.audioLevel.toFixed(1) + ' dB';
+      }
+    }
+
+    function renderCameras(cameras) {
+      const el = document.getElementById('cameraGrid');
+      if (!cameras || !cameras.length) { el.innerHTML = '<div class="card" style="text-align:center;color:var(--muted)">No cameras</div>'; return; }
+      el.innerHTML = cameras.map(c => {
+        const status = c.connected ? '🟢' : '🔴';
+        return `<div class="camera-feed">
+          <div class="name">${status} ${c.name || c.id}</div>
+          <canvas id="cam-${c.id}" width="320" height="180"></canvas>
+          <div class="stats">
+            <span>${c.fps || 0} fps</span>
+            <span>${c.alerts || 0} alerts</span>
+            <span>${c.connected ? 'Live' : 'Offline'}</span>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    // ---- Alert actions ----
+    async function dispatchAlert(id) {
+      try {
+        await fetch(`${API}/api/dispatch/ack`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN}` },
+          body: JSON.stringify({ alertId: id, action: 'dispatch' })
+        });
+      } catch(e) {
+        // Queue for background sync
+        queueOfflineAck({ id, action: 'dispatch', ts: Date.now() });
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.ready.then(reg => reg.sync.register('dispatch-ack'));
+        }
+      }
+    }
+
+    function dismissAlert(id) {
+      const el = document.querySelector(`[onclick*="${id}"]`);
+      if (el) el.closest('.alert-item')?.remove();
+    }
+
+    // ---- Offline storage ----
+    async function cacheAlerts(alerts) {
+      try {
+        const db = await openDB();
+        const tx = db.transaction('alerts', 'readwrite');
+        const store = tx.objectStore('alerts');
+        for (const a of alerts) store.put({ key: a.id, ...a, cachedAt: Date.now() });
+      } catch(e) {}
+    }
+
+    async function queueOfflineAck(ack) {
+      try {
+        const db = await openDB();
+        const tx = db.transaction('pendingAcks', 'readwrite');
+        tx.objectStore('pendingAcks').put({ key: ack.id + '-' + Date.now(), ...ack });
+      } catch(e) {}
+    }
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open('bhairav-offline', 1);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains('pendingAcks')) db.createObjectStore('pendingAcks', { keyPath: 'key' });
+          if (!db.objectStoreNames.contains('alerts')) db.createObjectStore('alerts', { keyPath: 'key' });
+        };
+        req.onsuccess = (e) => resolve(e.target.result);
+        req.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    async function clearCache() {
+      if ('caches' in window) {
+        const names = await caches.keys();
+        for (const n of names) await caches.delete(n);
+      }
+      document.getElementById('cacheSize').textContent = '0 MB';
+    }
+
+    function logout() {
+      localStorage.removeItem('bhairav_token');
+      location.href = '/';
+    }
+
+    // ---- User profile ----
+    async function loadProfile() {
+      try {
+        const r = await fetch(`${API}/api/auth/me`, { headers: { 'Authorization': `Bearer ${TOKEN}` } });
+        const user = await r.json();
+        document.getElementById('userName').textContent = user.username || 'Unknown';
+        document.getElementById('userRole').textContent = (user.role || 'viewer').toUpperCase();
+        document.getElementById('userAvatar').textContent = (user.username || '?')[0].toUpperCase();
+      } catch(e) {}
+    }
+
+    // ---- Pull to refresh ----
+    let touchStartY = 0;
+    document.addEventListener('touchstart', (e) => { touchStartY = e.touches[0].clientY; });
+    document.addEventListener('touchend', (e) => {
+      const delta = e.changedTouches[0].clientY - touchStartY;
+      if (delta > 80) {
+        document.getElementById('pullIndicator').classList.add('show');
+        setTimeout(() => document.getElementById('pullIndicator').classList.remove('show'), 1500);
+        connectAlerts(); // reconnect
+      }
+    });
+
+    // ---- Audio monitoring ----
+    function startAudioMonitor() {
+      try {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const aws = new WebSocket(`${proto}//${location.host}/ws/audio`);
+        aws.onmessage = (e) => {
+          try {
+            const d = JSON.parse(e.data);
+            if (d.level !== undefined) {
+              const pct = Math.min(100, Math.max(0, (d.level + 60) * 100 / 60));
+              document.getElementById('audioMeter').style.width = pct + '%';
+              document.getElementById('audioLevel').textContent = d.level.toFixed(1) + ' dB';
+            }
+            if (d.alert) {
+              const el = document.getElementById('audioAlerts');
+              const ts = new Date().toLocaleTimeString();
+              el.innerHTML = `<div style="margin-bottom:8px;padding:8px;background:var(--bg);border-radius:8px;border-left:3px solid var(--red)">
+                <strong>${d.alert.type}</strong> — ${d.alert.camera || 'mic'} at ${ts}
+              </div>` + el.innerHTML;
+            }
+          } catch(err) {}
+        };
+      } catch(e) {}
+    }
+
+    // ---- Init ----
+    loadProfile();
+    connectAlerts();
+    startAudioMonitor();
+
+    // Register service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/dashboard/sw.js').catch(() => {});
+    }
+  </script>
+</body>
+</html>

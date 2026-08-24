@@ -18,3 +18,7 @@ certs/
 # Phase 9 M3: local PG backups + prometheus scrape token
 backups/
 deploy/prometheus-token
+
+# VS Code (personal settings)
+.vscode/
+.vscode/*

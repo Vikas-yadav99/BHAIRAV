@@ -2,25 +2,24 @@
   "name": "BHAIRAV Command Center",
   "short_name": "BHAIRAV",
   "description": "Behavioral Hazard Analysis & Intelligent Real-time Action Vigilance",
-  "start_url": "/dashboard/",
+  "start_url": "/dashboard/mobile.html",
+  "scope": "/dashboard/",
   "display": "standalone",
   "background_color": "#0a0e1a",
   "theme_color": "#00e5ff",
-  "orientation": "any",
-  "icons": [
-    {
-      "src": "/dashboard/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/dashboard/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
-  ],
+  "orientation": "portrait-primary",
   "categories": ["security", "utilities"],
-  "prefer_related_applications": false
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "/dashboard/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/dashboard/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "screenshots": [
+    { "src": "/dashboard/icon-512.png", "sizes": "512x512", "type": "image/png", "form_factor": "wide" }
+  ],
+  "shortcuts": [
+    { "name": "Alerts", "url": "/dashboard/mobile.html#alerts", "icons": [{ "src": "/dashboard/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Cameras", "url": "/dashboard/mobile.html#cameras", "icons": [{ "src": "/dashboard/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Dispatch", "url": "/dashboard/mobile.html#dispatch", "icons": [{ "src": "/dashboard/icon-192.png", "sizes": "192x192" }] }
+  ]
 }
