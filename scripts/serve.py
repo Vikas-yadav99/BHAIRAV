@@ -41,6 +41,8 @@ import cv2
 import numpy as np
 
 from bhairav.config import CameraConfig, load_config
+from bhairav.events import EventBus, Event, publish_alert, publish_frame
+from bhairav.subscribers import wire_subscribers
 
 
 def _jpeg_b64(frame: np.ndarray, scale: float = 0.5) -> str:
@@ -124,7 +126,7 @@ def _point_in_zone(point: tuple[float, float], zone_points: list[tuple[float, fl
     return inside
 
 
-def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,               webhook_url, recent_alerts, plates, reid=None,               public_token: str | None = None, notifier=None, mic: bool = False,               analytics_engine=None):
+def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,               webhook_url, recent_alerts, plates, reid=None,               public_token: str | None = None, notifier=None, mic: bool = False,               analytics_engine=None, event_bus=None):
     """One camera pipeline loop on a background thread.
 
     Each camera gets an independent detector + rules engine (track ids from
@@ -209,6 +211,9 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,               we
             # Phase 10 M4: field-officer dispatch (channels filter internally).
             # An alert that a channel accepted also goes to the /ws/field
             # push feed (police+), so officers see exactly what is dispatched.
+            # Publish to event bus for subscribers (escalation, PTZ, federation, audit)
+            if event_bus is not None:
+                publish_alert(event_bus, ad, camera=cam.id)
             try:
                 if notifier is not None and notifier.notify(ad):
                     hub.publish_field_alert(ad)
@@ -260,9 +265,9 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,               we
                         1 for t in state.tracks if t.is_person
                         and _point_in_zone(t.centroid, z.points_norm))
                 # Phase 18: feed hotspot + summarizer
-                for _af_a in frame_alerts:
+                for _af_a in alerts:
                     _hotspot.observe(
-                        frame_ts,
+                        state.timestamp,
                         zone=getattr(_af_a, 'zone', None),
                         severity=_af_a.severity.value if hasattr(_af_a.severity, 'value') else str(_af_a.severity),
                         rule=_af_a.rule,
@@ -302,6 +307,11 @@ def run_stream(cfg, cam, hub, store, evidence_dir, stop, stats,               we
         # ops telemetry
         stats.bump(frames=1, alerts=len(alerts))
         # live feed (downscaled jpeg to keep the WS light), camera-scoped
+        # Publish frame to event bus (for PTZ tracking, analytics)
+        if event_bus is not None:
+            publish_frame(event_bus, state.frame_id, state.timestamp,
+                         [{"id": t.track_id, "label": t.label, "bbox": list(t.bbox)} for t in state.tracks],
+                         camera=cam.id)
         hub.publish_frame(
             frame_id=state.frame_id, timestamp=state.timestamp,
             jpeg_b64=_jpeg_b64(state.frame),
@@ -489,6 +499,7 @@ def main() -> int:
         print(f"[dispatch] field-officer alert channels: "
               f"{', '.join(ch['name'] for ch in notifier.stats())}")
     hub = LiveHub()
+    event_bus = EventBus()
     recent_alerts: list[dict] = []
 
     # ---- face search (Phase 6): find a person in evidence by photo --------
@@ -615,6 +626,33 @@ def main() -> int:
 
     threading.Thread(target=_sampler_loop, daemon=True).start()
 
+    # Wire event bus subscribers
+    from bhairav.response.escalation import EscalationEngine
+    from bhairav.response.integrations import IntegrationHub
+    from bhairav.response.ptz import PTZTracker
+    from bhairav.federation import FederationClient
+    from bhairav.backend.security import SecurityAuditLog
+
+    _escalation = EscalationEngine(getattr(cfg.response, 'escalation_rules', []) if hasattr(cfg, 'response') else [])
+    _integration_hub = IntegrationHub()
+    _ptz_tracker = PTZTracker()
+    _federation = FederationClient(
+        site_id=getattr(cfg.federation, 'site_id', 'site-1') if hasattr(cfg, 'federation') else 'site-1',
+        peers=getattr(cfg.federation, 'peers', []) if hasattr(cfg, 'federation') else [],
+        secret=getattr(cfg.federation, 'secret', '') if hasattr(cfg, 'federation') else '',
+    ) if hasattr(cfg, 'federation') and getattr(cfg.federation, 'peers', []) else None
+    _sec_audit = SecurityAuditLog()
+
+    wire_subscribers(
+        event_bus,
+        escalation_engine=_escalation,
+        ptz_tracker=_ptz_tracker,
+        integration_hub=_integration_hub,
+        federation_client=_federation,
+        audit_log=_sec_audit,
+        live_hub=hub,
+    )
+
     app = create_app(store, audit, secret=secret, hub=hub, users=users,
                      stats=stats, webhook_url=webhook_url, face=face,
                      plates=plates, recent_alerts=recent_alerts,
@@ -634,7 +672,8 @@ def main() -> int:
                              args=(cfg, cam, hub, store, evidence_dir, stop, st,
                                    webhook_url, recent_alerts, plates,
                                    reid_svc, public_token, notifier or None,
-                                   getattr(args, "mic", False), analytics_engine),
+                                   getattr(args, "mic", False), analytics_engine,
+                                   event_bus),
                              daemon=True)
         t.start()
 
