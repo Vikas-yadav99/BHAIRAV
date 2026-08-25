@@ -1,15 +1,23 @@
 /* Phase 16: Interactive camera map with FOV cones, re-ID trails, and heatmap overlay. */
+/* Converted from JSX to React.createElement for direct script loading. */
 
-function MapTab({ token }) {
-  const canvasRef = React.useRef(null);
-  const [cameras, setCameras] = React.useState([]);
-  const [subjects, setSubjects] = React.useState([]);
-  const [heatmap, setHeatmap] = React.useState(null);
-  const [selectedCam, setSelectedCam] = React.useState(null);
-  const [showHeatmap, setShowHeatmap] = React.useState(true);
-  const [showTrails, setShowTrails] = React.useState(true);
+function MapTab(props) {
+  var token = props.token;
+  var canvasRef = React.useRef(null);
+  var camerasState = React.useState([]);
+  var cameras = camerasState[0], setCameras = camerasState[1];
+  var subjectsState = React.useState([]);
+  var subjects = subjectsState[0], setSubjects = subjectsState[1];
+  var heatmapState = React.useState(null);
+  var heatmap = heatmapState[0], setHeatmap = heatmapState[1];
+  var selectedCamState = React.useState(null);
+  var selectedCam = selectedCamState[0], setSelectedCam = selectedCamState[1];
+  var showHeatmapState = React.useState(true);
+  var showHeatmap = showHeatmapState[0], setShowHeatmap = showHeatmapState[1];
+  var showTrailsState = React.useState(true);
+  var showTrails = showTrailsState[0], setShowTrails = showTrailsState[1];
 
-  const CAM_POSITIONS = React.useRef({
+  var CAM_POSITIONS = React.useRef({
     'CAM-01': { x: 0.2, y: 0.3, fov: 45, rot: 30, label: 'Plaza NW' },
     'CAM-02': { x: 0.5, y: 0.2, fov: 60, rot: 90, label: 'Plaza NE' },
     'CAM-03': { x: 0.8, y: 0.3, fov: 45, rot: 150, label: 'Server Entry' },
@@ -18,71 +26,71 @@ function MapTab({ token }) {
     'CAM-06': { x: 0.8, y: 0.8, fov: 45, rot: 30, label: 'Gate SE' },
   });
 
-  React.useEffect(() => {
-    async function load() {
-      try {
-        const data = await api(token).get('/api/reid/subjects');
+  var apiFn = (window.BHAIRAV || {}).api || function() { return { get: function() { return Promise.resolve({}); } }; };
+
+  React.useEffect(function() {
+    function load() {
+      apiFn(token).get('/api/reid/subjects').then(function(data) {
         setSubjects(data.subjects || []);
-      } catch (e) { /* reid might be disabled */ }
-      try {
-        const data = await api(token).get('/api/status');
+      }).catch(function() {});
+      apiFn(token).get('/api/status').then(function(data) {
         if (data.cameras) setCameras(data.cameras);
-      } catch (e) { /* */ }
+      }).catch(function() {});
     }
     load();
-    const iv = setInterval(load, 5000);
-    return () => clearInterval(iv);
+    var iv = setInterval(load, 5000);
+    return function() { clearInterval(iv); };
   }, [token]);
 
-  React.useEffect(() => {
-    let ws;
+  React.useEffect(function() {
+    var ws;
     try {
-      const base = location.origin || 'http://localhost:8000';
+      var base = location.origin || 'http://localhost:8000';
       ws = new WebSocket(base.replace('http', 'ws') + '/ws/analytics?token=' + token);
-      ws.onmessage = (ev) => {
+      ws.onmessage = function(ev) {
         try {
-          const m = JSON.parse(ev.data);
+          var m = JSON.parse(ev.data);
           if (m.type === 'analytics' && m.data && m.data.heatmap) {
             setHeatmap(m.data.heatmap);
           }
-        } catch (e) { /* */ }
+        } catch (e) {}
       };
-    } catch (e) { /* */ }
-    return () => { if (ws) ws.close(); };
+    } catch (e) {}
+    return function() { if (ws) ws.close(); };
   }, [token]);
 
-  React.useEffect(() => {
-    const canvas = canvasRef.current;
+  React.useEffect(function() {
+    var canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const W = canvas.width;
-    const H = canvas.height;
-    const cams = CAM_POSITIONS.current;
+    var ctx = canvas.getContext('2d');
+    var W = canvas.width;
+    var H = canvas.height;
+    var cams = CAM_POSITIONS.current;
 
     ctx.clearRect(0, 0, W, H);
 
     // Grid
     ctx.strokeStyle = 'rgba(56,189,248,0.06)';
     ctx.lineWidth = 1;
-    for (let i = 0; i < W; i += 40) {
+    for (var i = 0; i < W; i += 40) {
       ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, H); ctx.stroke();
     }
-    for (let j = 0; j < H; j += 40) {
+    for (var j = 0; j < H; j += 40) {
       ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(W, j); ctx.stroke();
     }
 
     // Heatmap
     if (showHeatmap && heatmap && heatmap.grid) {
-      const grid = heatmap.grid;
-      const gw = (grid[0] || []).length || 32;
-      const gh = grid.length || 24;
-      const cellW = W / gw;
-      const cellH = H / gh;
-      for (let r = 0; r < gh; r++) {
-        for (let c = 0; c < gw; c++) {
-          const v = (grid[r] || [])[c] || 0;
+      var grid = heatmap.grid;
+      var gw = (grid[0] || []).length || 32;
+      var gh = grid.length || 24;
+      var cellW = W / gw;
+      var cellH = H / gh;
+      for (var r = 0; r < gh; r++) {
+        for (var c = 0; c < gw; c++) {
+          var v = (grid[r] || [])[c] || 0;
           if (v > 0.01) {
-            const alpha = Math.min(v * 0.7, 0.5);
+            var alpha = Math.min(v * 0.7, 0.5);
             ctx.fillStyle = 'rgba(239,68,68,' + alpha + ')';
             ctx.fillRect(c * cellW, r * cellH, cellW + 1, cellH + 1);
           }
@@ -91,14 +99,17 @@ function MapTab({ token }) {
     }
 
     // FOV cones
-    for (const [id, cam] of Object.entries(cams)) {
-      const cx = cam.x * W;
-      const cy = cam.y * H;
-      const fovRad = (cam.fov * Math.PI) / 180;
-      const rotRad = (cam.rot * Math.PI) / 180;
-      const radius = Math.min(W, H) * 0.22;
-      const isSelected = selectedCam === id;
-      const isActive = cameras.some(function(c) { return c.id === id || c === id; });
+    var camIds = Object.keys(cams);
+    for (var ci = 0; ci < camIds.length; ci++) {
+      var id = camIds[ci];
+      var cam = cams[id];
+      var cx = cam.x * W;
+      var cy = cam.y * H;
+      var fovRad = (cam.fov * Math.PI) / 180;
+      var rotRad = (cam.rot * Math.PI) / 180;
+      var radius = Math.min(W, H) * 0.22;
+      var isSelected = selectedCam === id;
+      var isActive = cameras.some(function(c) { return c.id === id || c === id; });
 
       ctx.beginPath();
       ctx.moveTo(cx, cy);
@@ -130,17 +141,19 @@ function MapTab({ token }) {
     // Re-ID trails
     if (showTrails && subjects.length > 0) {
       var trailColors = ['#a855f7', '#f59e0b', '#06b6d4', '#ef4444', '#22c55e'];
-      subjects.slice(0, 5).forEach(function(subj, si) {
+      var trailSubjects = subjects.slice(0, 5);
+      for (var si = 0; si < trailSubjects.length; si++) {
+        var subj = trailSubjects[si];
         var cams_seen = subj.cameras || [];
-        if (cams_seen.length < 2) return;
+        if (cams_seen.length < 2) continue;
         var color = trailColors[si % trailColors.length];
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         ctx.setLineDash([6, 4]);
         ctx.beginPath();
         var started = false;
-        for (var ci = 0; ci < cams_seen.length; ci++) {
-          var cam2 = cams[cams_seen[ci]];
+        for (var ti = 0; ti < cams_seen.length; ti++) {
+          var cam2 = cams[cams_seen[ti]];
           if (!cam2) continue;
           var px = cam2.x * W;
           var py = cam2.y * H;
@@ -158,7 +171,7 @@ function MapTab({ token }) {
             ctx.fillText(subj.name || subj.id, firstCam.x * W + 12, firstCam.y * H - 8);
           }
         }
-      });
+      }
     }
 
     // Legend
@@ -198,53 +211,40 @@ function MapTab({ token }) {
 
   var camSubs = selectedCam ? subjects.filter(function(s) { return (s.cameras || []).indexOf(selectedCam) >= 0; }) : [];
 
-  return (
-    <div className="card">
-      <h2>{'\u{1f5fa}'} Site Map <span className="muted">{'\u00b7'} camera positions, FOV, re-ID trails, heatmap</span></h2>
-      <div className="chips" style={{marginBottom: 12}}>
-        <button className={'chip' + (showHeatmap ? ' active' : '')}
-                style={{cursor:'pointer', background: showHeatmap ? '#422006' : '#1e293b',
-                        color: showHeatmap ? '#fbbf24' : 'var(--muted)', border: 'none', padding: '4px 12px', borderRadius: 6}}
-                onClick={function() { setShowHeatmap(!showHeatmap); }}>
-          {'\u{1f525}'} Heatmap {showHeatmap ? 'ON' : 'OFF'}
-        </button>
-        <button className={'chip' + (showTrails ? ' active' : '')}
-                style={{cursor:'pointer', background: showTrails ? '#1e1b4b' : '#1e293b',
-                        color: showTrails ? '#a5b4fc' : 'var(--muted)', border: 'none', padding: '4px 12px', borderRadius: 6}}
-                onClick={function() { setShowTrails(!showTrails); }}>
-          {'\u{1f464}'} Trails {showTrails ? 'ON' : 'OFF'}
-        </button>
-        <span className="chip" style={{background:'#052e16', color:'var(--green)'}}>
-          {cameras.length || Object.keys(CAM_POSITIONS.current).length} cameras
-        </span>
-        <span className="chip" style={{background:'#1e1b4b', color:'#a5b4fc'}}>
-          {subjects.length} re-ID subjects
-        </span>
-      </div>
-      <canvas ref={canvasRef} width={800} height={500}
-              style={{width:'100%', borderRadius:8, border:'1px solid #1e293b', cursor:'pointer'}}
-              onClick={handleClick} />
-      {selectedCam && (
-        <div style={{marginTop: 12, padding: '8px 12px', background: '#0d1526', borderRadius: 8, fontSize: 13}}>
-          <b style={{color:'var(--cyan)'}}>{selectedCam}</b>
-          <span className="muted" style={{marginLeft: 8}}>
-            {CAM_POSITIONS.current[selectedCam] ? CAM_POSITIONS.current[selectedCam].label : ''}{' \u00b7 FOV '}
-            {CAM_POSITIONS.current[selectedCam] ? CAM_POSITIONS.current[selectedCam].fov : ''}{'\u00b0'}
-          </span>
-          {camSubs.length > 0 ? (
-            <div style={{marginTop: 6, fontSize: 12}}>
-              <span className="muted">People seen here: </span>
-              {camSubs.map(function(s) {
-                return (
-                  <span key={s.id} className="chip" style={{background:'#1e1b4b', color:'#a5b4fc', marginRight:4, fontSize:11}}>
-                    {s.name || s.id}
-                  </span>
-                );
-              })}
-            </div>
-          ) : <div className="muted" style={{marginTop:4, fontSize:12}}>No re-ID subjects seen yet</div>}
-        </div>
-      )}
-    </div>
+  return React.createElement('div', {className: 'card'},
+    React.createElement('h2', null, '\u{1f5fa} Site Map ', React.createElement('span', {className: 'muted'}, '\u00b7 camera positions, FOV, re-ID trails, heatmap')),
+    React.createElement('div', {className: 'chips', style: {marginBottom: 12}},
+      React.createElement('button', {
+        className: 'chip',
+        style: {cursor:'pointer', background: showHeatmap ? '#422006' : '#1e293b', color: showHeatmap ? '#fbbf24' : 'var(--muted)', border: 'none', padding: '4px 12px', borderRadius: 6},
+        onClick: function() { setShowHeatmap(!showHeatmap); }
+      }, '\u{1f525} Heatmap ' + (showHeatmap ? 'ON' : 'OFF')),
+      React.createElement('button', {
+        className: 'chip',
+        style: {cursor:'pointer', background: showTrails ? '#1e1b4b' : '#1e293b', color: showTrails ? '#a5b4fc' : 'var(--muted)', border: 'none', padding: '4px 12px', borderRadius: 6},
+        onClick: function() { setShowTrails(!showTrails); }
+      }, '\u{1f464} Trails ' + (showTrails ? 'ON' : 'OFF')),
+      React.createElement('span', {className: 'chip', style: {background:'#052e16', color:'var(--green)'}},
+        (cameras.length || Object.keys(CAM_POSITIONS.current).length) + ' cameras'),
+      React.createElement('span', {className: 'chip', style: {background:'#1e1b4b', color:'#a5b4fc'}},
+        subjects.length + ' re-ID subjects')
+    ),
+    React.createElement('canvas', {
+      ref: canvasRef, width: 800, height: 500,
+      style: {width:'100%', borderRadius:8, border:'1px solid #1e293b', cursor:'pointer'},
+      onClick: handleClick
+    }),
+    selectedCam && React.createElement('div', {style: {marginTop: 12, padding: '8px 12px', background: '#0d1526', borderRadius: 8, fontSize: 13}},
+      React.createElement('b', {style: {color:'var(--cyan)'}}, selectedCam),
+      React.createElement('span', {className: 'muted', style: {marginLeft: 8}},
+        (CAM_POSITIONS.current[selectedCam] ? CAM_POSITIONS.current[selectedCam].label : '') + ' \u00b7 FOV ' + (CAM_POSITIONS.current[selectedCam] ? CAM_POSITIONS.current[selectedCam].fov : '') + '\u00b0'),
+      camSubs.length > 0 ? React.createElement('div', {style: {marginTop: 6, fontSize: 12}},
+        React.createElement('span', {className: 'muted'}, 'People seen here: '),
+        camSubs.map(function(s) {
+          return React.createElement('span', {key: s.id, className: 'chip', style: {background:'#1e1b4b', color:'#a5b4fc', marginRight:4, fontSize:11}},
+            s.name || s.id);
+        })
+      ) : React.createElement('div', {className: 'muted', style: {marginTop:4, fontSize:12}}, 'No re-ID subjects seen yet')
+    )
   );
 }
