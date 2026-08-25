@@ -240,6 +240,37 @@ class CSRFProtection:
             del self._tokens[k]
 
 
+# --- Rate Limiting ---
+
+@dataclass
+class RateLimiter:
+    """Per-key token-bucket rate limiter.
+
+    ``allow(key)`` returns True while the budget remains, False once the
+    caller has exceeded *limit* calls inside the sliding *window_sec*.
+    """
+    limit: int = 60
+    window_sec: float = 60.0
+    _buckets: dict = field(default_factory=dict, repr=False)
+
+    def allow(self, key: str) -> bool:
+        now = time.time()
+        window_start = now - self.window_sec
+        bucket = self._buckets.setdefault(key, [])
+        # Evict entries outside the window
+        self._buckets[key] = bucket = [t for t in bucket if t > window_start]
+        if len(bucket) >= self.limit:
+            return False
+        bucket.append(now)
+        return True
+
+    def reset(self, key: str = "") -> None:
+        if key:
+            self._buckets.pop(key, None)
+        else:
+            self._buckets.clear()
+
+
 # --- Request Validation ---
 
 @dataclass
