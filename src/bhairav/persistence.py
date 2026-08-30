@@ -6,7 +6,6 @@ that evict old entries. Prevents memory leaks in long-running deployments.
 from __future__ import annotations
 
 import os
-import sys
 import threading
 import time
 from collections import OrderedDict

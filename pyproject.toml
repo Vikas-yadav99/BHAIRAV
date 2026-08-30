@@ -1,6 +1,6 @@
 [project]
 name = "bhairav"
-version = "0.14.0"
+version = "0.21.0"
 description = "BHAIRAV - Behavioral Hazard Analysis & Intelligent Real-time Action Vigilance: vision pipeline, behavior alerts, evidence, re-identification, proactive scene intelligence, audio analytics & live API (Phases 1-13)."
 requires-python = ">=3.10"
 dependencies = [

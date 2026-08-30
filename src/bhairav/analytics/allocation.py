@@ -6,10 +6,8 @@ to escalate to backup units.
 """
 from __future__ import annotations
 
-import math
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass

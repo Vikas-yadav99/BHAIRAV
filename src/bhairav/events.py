@@ -19,7 +19,7 @@ import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Callable
 
 log = logging.getLogger("bhairav.events")
 

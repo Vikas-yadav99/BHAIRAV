@@ -33,11 +33,14 @@ stringified annotations would make it treat `websocket` as a query param.
 import asyncio
 import hmac
 import json
+import logging
 import threading
 import time
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger("bhairav.server")
 
 from .audit import AuditLog
 from .evidence import EvidenceStore
@@ -419,8 +422,51 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         if cl and cl.isdigit() and int(cl) > MAX_JSON_BODY_BYTES:
             raise HTTPException(status_code=413, detail="request body too large")
 
-    app = FastAPI(title="BHAIRAV - Evidence & Live API", version="10.0.0")
+    from .. import __version__
+    app = FastAPI(title="BHAIRAV - Evidence & Live API", version=__version__)
     app.add_middleware(_BodyLimitMiddleware, max_bytes=MAX_JSON_BODY_BYTES)
+
+    # CORS: configurable allowed origins via BHAIRAV_CORS_ORIGINS env var
+    # (comma-separated). Default: same-origin only (no cross-origin).
+    import os
+    cors_raw = os.environ.get("BHAIRAV_CORS_ORIGINS", "").strip()
+    if cors_raw:
+        try:
+            from fastapi.middleware.cors import CORSMiddleware
+            origins = [o.strip() for o in cors_raw.split(",") if o.strip()]
+            app.add_middleware(
+                CORSMiddleware,
+                allow_origins=origins,
+                allow_credentials=True,
+                allow_methods=["*"],
+                allow_headers=["*"],
+            )
+            log.info("CORS enabled for origins: %s", origins)
+        except ImportError:
+            log.warning("fastapi.middleware.cors not available; CORS disabled")
+
+    # CSRF protection: state-changing endpoints require a custom header
+    # (X-Requested-With: XMLHttpRequest) or a matching Origin header.
+    # GET/HEAD/OPTIONS are safe and exempt.
+    _csrf_enabled = os.environ.get("BHAIRAV_CSRFProtection", "").lower() in ("1", "true", "yes")
+    _csrf_header = "x-requested-with"
+    _safe_methods = {"GET", "HEAD", "OPTIONS"}
+
+    @app.middleware("http")
+    async def _csrf_middleware(request: Request, call_next):
+        if not _csrf_enabled:
+            return await call_next(request)
+        if request.method in _safe_methods:
+            return await call_next(request)
+        # Allow API token auth (Bearer) — CSRF only matters for cookie-based auth
+        auth = request.headers.get("authorization", "")
+        if auth.startswith("Bearer "):
+            return await call_next(request)
+        # Check for the custom header or a same-origin referer
+        if _csrf_header in request.headers:
+            return await call_next(request)
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=403, detail="CSRF validation failed: missing X-Requested-With header")
 
     # Phase 4: serve the React dashboard (dashboard/index.html) from the repo.
     # os.path.dirname(__file__) is the backend/ dir, so parents[2] is the repo root.
@@ -507,7 +553,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         counts = store.counts()
         audit_ok, problems = audit.verify()
         return {
-            "service": "bhairav", "version": "10.0.0",
+            "service": "bhairav", "version": __version__,
             "time": round(time.time(), 3),
             "pipeline": stats.snapshot(),
             "clients": hub.client_count,
@@ -1289,7 +1335,6 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
 
     @app.get("/api/traffic")
     def traffic_snapshot(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
-        from bhairav.traffic import TrafficAnalyzer
         return {"zones": [], "total_vehicles_tracked": 0}
 
     @app.get("/api/timeline")
@@ -1389,5 +1434,151 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         return {"recommendations": [r.to_dict() for r in allocator.analyze(
             h.snapshot().get("hotspots", []), zone_counts
         )]}
+
+    # ---- Live Face Search + Trajectory Prediction (new) --------------------
+    try:
+        from ..face_tracking import LiveFaceMonitor, TrajectoryPredictor, LiveFaceMonitorConfig
+
+        # Trajectory predictor (no persistence by default — serve.py adds that)
+        trajectory_predictor = TrajectoryPredictor(
+            zones=[],
+            enable_cross_camera_linking=True,
+        )
+        live_face_monitor = None
+        if face is not None:
+            try:
+                live_face_monitor = LiveFaceMonitor(
+                    face["recognizer"], face["gallery"],
+                    config=LiveFaceMonitorConfig(
+                        detect_every_n_frames=5,
+                        min_detection_score=0.80,
+                        min_match_similarity=0.50,
+                        alert_cooldown_sec=30.0,
+                    ),
+                )
+            except Exception as exc:
+                log.warning("Live face monitor init failed: %s", exc)
+    except ImportError:
+        log.warning("face_tracking module not available; trajectory prediction disabled")
+        trajectory_predictor = None
+        live_face_monitor = None
+
+    @app.get("/api/face/live-monitor/status")
+    def face_live_status(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """Status of the live face monitor."""
+        if live_face_monitor is None:
+            return {"enabled": False, "reason": "face models not installed"}
+        return {"enabled": True, **live_face_monitor.stats()}
+
+    @app.post("/api/face/live-monitor/process")
+    async def face_live_process(payload: dict = Body(...),
+                                claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """Process a single frame for live face matching (async).
+
+        Body: {image_b64, camera_id, frame_id}
+        Returns: list of face matches against the gallery.
+
+        Runs face detection in a thread pool to avoid blocking the event loop.
+        """
+        if live_face_monitor is None:
+            raise HTTPException(status_code=503,
+                                detail="live face monitor unavailable")
+        img = _decode_image_b64(str(payload.get("image_b64", "")))
+        camera_id = str(payload.get("camera_id", "unknown"))
+        frame_id = int(payload.get("frame_id", 0))
+        ts = time.time()
+        # Run CPU-intensive face detection in a thread pool
+        matches = await asyncio.to_thread(
+            live_face_monitor.process_frame, img, camera_id, frame_id, ts
+        )
+        return {"matches": [m.to_dict() for m in matches],
+                "stats": live_face_monitor.stats()}
+
+    @app.get("/api/persons/tracked")
+    def persons_tracked(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """List all currently tracked persons with movement data."""
+        if trajectory_predictor is None:
+            return {"persons": [], "stats": {}, "enabled": False}
+        return {"persons": trajectory_predictor.list_tracked_persons(),
+                "stats": trajectory_predictor.stats(), "enabled": True}
+
+    @app.get("/api/persons/{person_id}/trajectory")
+    def person_trajectory(person_id: str,
+                          seconds: float = 30.0,
+                          claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """Get position history for a person."""
+        if trajectory_predictor is None:
+            return {"person": None, "positions": [], "enabled": False}
+        positions = trajectory_predictor.get_recent_positions(person_id, seconds)
+        traj = trajectory_predictor.get_trajectory(person_id)
+        info = None
+        if traj:
+            info = {
+                "person_id": person_id,
+                "current_camera": traj.current_camera,
+                "cameras_visited": traj.cameras_visited,
+                "speed": round(traj.speed, 6),
+                "heading_deg": round(traj.heading_deg, 1),
+                "total_distance": round(traj.total_distance, 4),
+                "first_seen": round(traj.first_seen, 3),
+                "last_seen": round(traj.last_seen, 3),
+            }
+        return {"person": info, "positions": positions}
+
+    @app.get("/api/persons/{person_id}/predict")
+    def person_predict(person_id: str,
+                       horizons: str = "1,2,5,10,15,30",
+                       claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """Predict future positions for a person.
+
+        Query param: horizons = comma-separated seconds (default: 1,2,5,10,15,30)
+        Returns 404 if person not found, empty predictions if insufficient data.
+        """
+        try:
+            h_list = [float(h.strip()) for h in horizons.split(",") if h.strip()]
+        except ValueError:
+            h_list = [1.0, 2.0, 5.0, 10.0, 15.0, 30.0]
+        if trajectory_predictor is None:
+            return {"person_id": person_id, "current": None, "predictions": [], "enabled": False}
+        predictions = trajectory_predictor.predict_multi(person_id, h_list)
+        if predictions is None:
+            raise HTTPException(status_code=404,
+                                detail=f"person '{person_id}' not found")
+        traj = trajectory_predictor.get_trajectory(person_id)
+        current = None
+        if traj and traj.positions:
+            last = traj.positions[-1]
+            current = {
+                "x": round(last.x, 4),
+                "y": round(last.y, 4),
+                "camera_id": last.camera_id,
+                "timestamp": round(last.timestamp, 3),
+                "speed": round(traj.speed, 6),
+                "heading_deg": round(traj.heading_deg, 1),
+            }
+        return {
+            "person_id": person_id,
+            "current": current,
+            "predictions": predictions,
+        }
+
+    @app.get("/api/persons/predict-zones")
+    def persons_predict_zones(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """Predict which zones people are heading toward."""
+        if trajectory_predictor is None:
+            return {"zone_predictions": [], "total_tracked": 0, "enabled": False}
+        persons = trajectory_predictor.list_tracked_persons()
+        zone_predictions = []
+        for p in persons:
+            pred = trajectory_predictor.predict(p["person_id"], seconds_ahead=10.0)
+            if pred and pred.zone:
+                zone_predictions.append({
+                    "person_id": p["person_id"],
+                    "current_camera": p["current_camera"],
+                    "predicted_zone": pred.zone,
+                    "predicted_position": pred.to_dict(),
+                })
+        return {"zone_predictions": zone_predictions,
+                "total_tracked": len(persons)}
 
     return app

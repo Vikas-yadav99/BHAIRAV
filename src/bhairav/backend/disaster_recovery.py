@@ -6,12 +6,11 @@ failover drills, health monitoring, and DR runbook generation.
 from __future__ import annotations
 
 import json
-import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Callable
 
 
 @dataclass

@@ -1,0 +1,84 @@
+# ============================================
+# BHAIRAV — Docker Compose
+# ============================================
+# Usage:
+#   docker compose up              — run server (default)
+#   docker compose --profile dev up — with hot-reload + dashboard
+#   docker compose --profile full up — server + postgres + redis
+#   docker compose up --scale worker=3 — multi-worker
+
+services:
+  # --- Core server ---
+  server:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - BHAIRAV_SECRET=${BHAIRAV_SECRET:-change-me-in-production}
+      - BHAIRAV_CORS_ORIGINS=${BHAIRAV_CORS_ORIGINS:-}
+      - BHAIRAV_DB_URL=${BHAIRAV_DB_URL:-}
+    volumes:
+      - evidence_data:/app/data/evidence
+      - trajectory_data:/app/data/trajectories
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # --- Worker (pipeline processing) ---
+  worker:
+    build: .
+    command: python -m bhairav.serve --no-server --source rtsp://camera01
+    environment:
+      - BHAIRAV_SECRET=${BHAIRAV_SECRET:-change-me-in-production}
+      - BHAIRAV_DB_URL=${BHAIRAV_DB_URL:-}
+    volumes:
+      - evidence_data:/app/data/evidence
+    profiles:
+      - scale
+    deploy:
+      replicas: 1
+
+  # --- Dev profile: hot-reload + dashboard ---
+  dev:
+    build: .
+    command: python -m bhairav.serve --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      - BHAIRAV_SECRET=dev-secret
+    volumes:
+      - ./src:/app/src
+      - ./dashboard:/app/dashboard
+      - evidence_data:/app/data/evidence
+    profiles:
+      - dev
+
+  # --- Postgres (optional, for production) ---
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bhairav
+      POSTGRES_USER: bhairav
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bhairav}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    profiles:
+      - full
+
+  # --- Redis (optional, for caching/queues) ---
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    profiles:
+      - full
+
+volumes:
+  evidence_data:
+  trajectory_data:
+  pgdata:

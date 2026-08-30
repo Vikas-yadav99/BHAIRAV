@@ -9,7 +9,6 @@ Pluggable integration hub for external systems:
 """
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time

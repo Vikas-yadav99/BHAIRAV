@@ -40,4 +40,4 @@ Phase 25: Load & stress testing framework.
 Phase 26: Security audit module - input sanitization, CSRF, CORS, vulnerability scanning.
 Phase 27: Disaster recovery - automated backups, failover drills, DR runbook.
 """
-__version__ = "0.20.0"
+__version__ = "0.21.0"

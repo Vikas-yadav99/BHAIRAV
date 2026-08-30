@@ -6,8 +6,6 @@ not just synthetic blobs.
 from __future__ import annotations
 
 import logging
-import os
-import sys
 from pathlib import Path
 
 log = logging.getLogger("bhairav.detection.validation")
@@ -124,7 +122,6 @@ def validate_detection_on_frame(frame, detector_name: str = "blob") -> dict:
     """
     try:
         import numpy as np
-        from bhairav.types import Detection
 
         if frame is None or not isinstance(frame, np.ndarray):
             return {"ok": False, "detections": 0, "error": "Invalid frame (None or not numpy array)"}

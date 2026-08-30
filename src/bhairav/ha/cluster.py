@@ -7,11 +7,9 @@ Works with or without Redis (falls back to in-process singleton).
 from __future__ import annotations
 
 import json
-import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
 
 
 @dataclass
