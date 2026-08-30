@@ -1,0 +1,185 @@
+{
+  "test_date": "2026-08-30 21:06:40",
+  "elapsed_seconds": 555.6,
+  "total_components": 13,
+  "passed": 13,
+  "failed": 0,
+  "component_results": {
+    "yolo_detection": {
+      "status": "PASS",
+      "model": "yolov8n",
+      "total_detections": 567,
+      "total_frames_sampled": 1263,
+      "detection_rate": 34.8,
+      "clips": [
+        {
+          "clip": "1166-720.mp4",
+          "frames": 595,
+          "persons": 152,
+          "detection_rate": "26%"
+        },
+        {
+          "clip": "1171-720.mp4",
+          "frames": 729,
+          "persons": 0,
+          "detection_rate": "0%"
+        },
+        {
+          "clip": "1223-720.mp4",
+          "frames": 300,
+          "persons": 74,
+          "detection_rate": "25%"
+        },
+        {
+          "clip": "3065-720.mp4",
+          "frames": 288,
+          "persons": 2,
+          "detection_rate": "1%"
+        },
+        {
+          "clip": "32809-720.mp4",
+          "frames": 305,
+          "persons": 91,
+          "detection_rate": "30%"
+        },
+        {
+          "clip": "34489-720.mp4",
+          "frames": 216,
+          "persons": 0,
+          "detection_rate": "0%"
+        },
+        {
+          "clip": "34563-720.mp4",
+          "frames": 240,
+          "persons": 2,
+          "detection_rate": "1%"
+        },
+        {
+          "clip": "4015-720.mp4",
+          "frames": 225,
+          "persons": 0,
+          "detection_rate": "0%"
+        },
+        {
+          "clip": "4310-720.mp4",
+          "frames": 527,
+          "persons": 0,
+          "detection_rate": "0%"
+        },
+        {
+          "clip": "4817-720.mp4",
+          "frames": 370,
+          "persons": 246,
+          "detection_rate": "66%"
+        }
+      ]
+    },
+    "bytetrack": {
+      "status": "PASS",
+      "total_track_assignments": 30,
+      "unique_track_ids": 1,
+      "clips_tested": 3
+    },
+    "rules_engine": {
+      "status": "PASS",
+      "total_alerts": 1,
+      "by_rule": {
+        "fall": 1
+      },
+      "by_severity": {
+        "orange": 1
+      },
+      "clips_tested": 10
+    },
+    "alert_persistence": {
+      "status": "PASS",
+      "written": 5,
+      "read_back": 5,
+      "summary": {
+        "total": 5,
+        "by_rule": {
+          "fight": 1,
+          "fall": 1,
+          "chase": 1,
+          "loiter": 1,
+          "crowd": 1
+        },
+        "by_severity": {
+          "red": 2,
+          "orange": 2,
+          "yellow": 1
+        }
+      }
+    },
+    "trajectory_predictor": {
+      "status": "PASS",
+      "tracked_persons": 2,
+      "total_positions": 50,
+      "prediction_works": true,
+      "persistence_records": 50,
+      "imm_cv_velocity": 1.973
+    },
+    "camera_calibration": {
+      "status": "PASS",
+      "quality": 1.0,
+      "pixel_to_world_works": true,
+      "world_to_pixel_works": true
+    },
+    "evidence_storage": {
+      "status": "PASS",
+      "evidence_id": "a77bd661bade",
+      "rule": "fight",
+      "frame_count": 8,
+      "has_snapshot": true
+    },
+    "face_detection": {
+      "status": "PASS",
+      "self_similarity": 1.0,
+      "cross_similarity": 0.138,
+      "gallery_search_works": true
+    },
+    "fastapi_endpoints": {
+      "status": "PASS",
+      "passed": 8,
+      "total": 8
+    },
+    "rate_limiting": {
+      "status": "PASS",
+      "total_requests": 25,
+      "rate_limited": 15,
+      "first_429_at": 10
+    },
+    "rbac": {
+      "status": "PASS",
+      "passed": 4,
+      "total": 4
+    },
+    "websocket": {
+      "status": "PASS",
+      "passed": 2,
+      "total": 2
+    },
+    "dashboard": {
+      "status": "PASS",
+      "has_html": true,
+      "has_content": true,
+      "has_scripts": true,
+      "swagger_available": true
+    }
+  },
+  "summary": {
+    "yolo_detection": "PASS",
+    "bytetrack": "PASS",
+    "rules_engine": "PASS",
+    "alert_persistence": "PASS",
+    "trajectory_predictor": "PASS",
+    "camera_calibration": "PASS",
+    "evidence_storage": "PASS",
+    "face_detection": "PASS",
+    "fastapi_endpoints": "PASS",
+    "rate_limiting": "PASS",
+    "rbac": "PASS",
+    "websocket": "PASS",
+    "dashboard": "PASS"
+  }
+}

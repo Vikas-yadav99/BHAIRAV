@@ -15,7 +15,6 @@ import logging
 import math
 import threading
 import time
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
