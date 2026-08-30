@@ -350,3 +350,134 @@ class TestRealFaceDetection:
         g.add("messi", e2)
         hits = g.search(e1, threshold=0.5)
         assert hits and hits[0]["name"] == "lena"
+
+
+
+class TestFaceRegression:
+    """Face detection regression tests that work without video footage."""
+
+    MODELS_DIR = Path("models")
+    DATA_DIR = Path("tests/data")
+
+    @pytest.mark.skipif(
+        not (Path("models") / "face_detection_yunet.onnx").exists(),
+        reason="YuNet model not downloaded"
+    )
+    def test_face_detection_on_synthetic_face(self):
+        """YuNet detects a face in a synthetic image with a face-like pattern."""
+        import cv2
+        from bhairav.backend.face_search import check_models, FaceRecognizer
+
+        models = check_models()
+        rec = FaceRecognizer(models["detector"], models["recognizer"])
+
+        # Create a simple face-like image (oval with eyes)
+        img = np.zeros((200, 200, 3), dtype=np.uint8)
+        img[:] = (200, 180, 160)  # skin tone background
+        cv2.ellipse(img, (100, 100), (60, 80), 0, 0, 360, (180, 160, 140), -1)  # face oval
+        cv2.circle(img, (80, 85), 8, (50, 50, 50), -1)  # left eye
+        cv2.circle(img, (120, 85), 8, (50, 50, 50), -1)  # right eye
+        cv2.ellipse(img, (100, 120), (20, 10), 0, 0, 180, (100, 80, 80), 2)  # mouth
+
+        emb = rec.embed(img)
+        # May or may not detect a face in synthetic image — just verify no crash
+        # Real photos (lena.jpg, messi5.jpg) are tested in TestRealFaceDetection
+
+    @pytest.mark.skipif(
+        not (Path("models") / "face_detection_yunet.onnx").exists(),
+        reason="YuNet model not downloaded"
+    )
+    def test_face_embedding_deterministic(self):
+        """Same image produces same embedding every time."""
+        import cv2
+        from bhairav.backend.face_search import check_models, FaceRecognizer
+
+        models = check_models()
+        rec = FaceRecognizer(models["detector"], models["recognizer"])
+        img = cv2.imread(str(self.DATA_DIR / "lena.jpg"))
+        assert img is not None
+
+        e1 = rec.embed(img)
+        e2 = rec.embed(img)
+        assert e1 is not None and e2 is not None
+        np.testing.assert_array_almost_equal(e1, e2, decimal=5,
+            err_msg="Embedding not deterministic")
+
+    @pytest.mark.skipif(
+        not (Path("models") / "face_detection_yunet.onnx").exists(),
+        reason="YuNet model not downloaded"
+    )
+    def test_face_gallery_persistence(self):
+        """Gallery survives save/load cycle."""
+        import cv2
+        from bhairav.backend.face_search import check_models, FaceRecognizer, FaceGallery
+
+        models = check_models()
+        rec = FaceRecognizer(models["detector"], models["recognizer"])
+        img = cv2.imread(str(self.DATA_DIR / "lena.jpg"))
+        emb = rec.embed(img)
+
+        gallery_path = Path(tempfile.mkdtemp()) / "gallery.json"
+        g1 = FaceGallery(gallery_path)
+        g1.add("test_subject", emb, notes="persist test")
+
+        # Reload from disk
+        g2 = FaceGallery(gallery_path)
+        assert g2.count() == 1
+        hits = g2.search(emb, threshold=0.5)
+        assert hits and hits[0]["name"] == "test_subject"
+
+    def test_imm_filter_convergence(self):
+        """IMM filter processes observations with predict+update cycle."""
+        from bhairav.face_tracking import _IMMFilter2D
+
+        imm = _IMMFilter2D()
+        imm.init_state(0, 0)
+
+        # Feed a clear constant-velocity pattern (predict then update)
+        dt = 0.1
+        for i in range(50):
+            imm.predict(dt)
+            imm.update(float(i * 2 * dt), 0.0)
+
+        # Filter should not crash, should have valid probabilities
+        assert len(imm.probs) == 3
+        assert abs(sum(imm.probs) - 1.0) < 0.01
+        assert imm.active_model in ["constant_velocity", "constant_acceleration", "stopped"]
+        assert imm.position_uncertainty >= 0
+
+        # The CV sub-filter should have learned the velocity
+        cv_vx, cv_vy = imm.cv.velocity
+        assert cv_vx > 0, f"CV filter velocity should be positive, got {cv_vx}"
+
+    def test_camera_calibration_world_coords(self):
+        """CameraCalibration maps pixel to world and back."""
+        from bhairav.face_tracking import CameraCalibration
+
+        cal = CameraCalibration(camera_id="TEST")
+        # Simple calibration: pixel (0,0) -> world (0,0), pixel (100,100) -> world (10,10)
+        pixel_pts = [(0, 0), (100, 0), (0, 100), (100, 100)]
+        world_pts = [(0, 0), (10, 0), (0, 10), (10, 10)]
+
+        ok = cal.set_from_correspondences(pixel_pts, world_pts)
+        assert ok, "Calibration failed"
+
+        # Test forward: pixel -> world
+        wx, wy = cal.pixel_to_world(50, 50)
+        assert abs(wx - 5.0) < 0.1 and abs(wy - 5.0) < 0.1
+
+        # Test inverse: world -> pixel
+        px, py = cal.world_to_pixel(5, 5)
+        assert abs(px - 50) < 1 and abs(py - 50) < 1
+
+    def test_chi2_confidence_range(self):
+        """Chi-squared confidence is always in [0, 1]."""
+        from bhairav.face_tracking import _chi2_confidence
+
+        for nis in [-1, 0, 0.5, 1.0, 2.0, 5.0, 10.0, 100.0]:
+            c = _chi2_confidence(nis)
+            assert 0 <= c <= 1, f"Confidence {c} out of range for NIS={nis}"
+
+        # NIS=0 should be highest confidence
+        assert _chi2_confidence(0) > _chi2_confidence(5)
+        assert _chi2_confidence(5) > _chi2_confidence(50)

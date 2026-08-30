@@ -1,20 +1,16 @@
-# ML/CV dependencies for BHAIRAV
-# Separate from base requirements for lighter Docker builds
+# ML/CV dependencies for BHAIRAV (pinned)
+# Lighter alternative to full requirements.txt for Docker builds
 
-# Object detection
-ultralytics>=8.0.0
-opencv-python-headless>=4.8.0
-
-# Face detection/recognition (YuNet + SFace via OpenCV)
-# These are bundled with opencv-contrib-python or downloaded at runtime
+# Object detection + tracking
+ultralytics==8.4.117
+opencv-python-headless==4.12.0.88
 
 # Deep learning backends
-torch>=2.0.0
-torchvision>=0.15.0
+torch==2.13.0
+torchvision==0.28.0
 
 # Numerical
-numpy>=1.24.0
-scipy>=1.10.0
+numpy==2.2.6
+scipy==1.15.3
 
-# Tracking
 # ByteTrack is included in ultralytics
