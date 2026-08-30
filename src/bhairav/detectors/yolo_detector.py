@@ -14,7 +14,7 @@ from .base import Detector
 
 
 class YoloDetector(Detector):
-    def __init__(self, model_cfg: ModelConfig):
+    def __init__(self, model_cfg: ModelConfig, detect_interval: int = 1):
         try:
             from ultralytics import YOLO
         except ImportError as exc:  # pragma: no cover - env dependent
@@ -24,6 +24,8 @@ class YoloDetector(Detector):
         self.cfg = model_cfg
         self.model = YOLO(model_cfg.name)
         self._fps = 30.0
+        self._detect_interval = max(1, detect_interval)
+        self._last_tracks = []
         # Optional pose estimation: enabled only when mediapipe + the model
         # file are available, so the pipeline degrades gracefully.
         self._pose = None
@@ -63,26 +65,32 @@ class YoloDetector(Detector):
             ok, frame = cap.read()
             if not ok:
                 break
-            results = self.model.track(
-                frame,
-                persist=True,                  # keeps ByteTrack state across frames
-                conf=self.cfg.conf,
-                imgsz=self.cfg.imgsz,
-                classes=list(self.cfg.classes),
-                tracker=self.cfg.tracker,      # bytetrack.yaml = ByteTrack
-                verbose=False,
-            )
-            tracks: list[Track] = []
-            boxes = results[0].boxes
-            if boxes is not None and boxes.id is not None:
-                ids = boxes.id.cpu().numpy().astype(int)
-                xyxy = boxes.xyxy.cpu().numpy()
-                confs = boxes.conf.cpu().numpy()
-                clss = boxes.cls.cpu().numpy()
-                for tid, box, conf, cls in zip(ids, xyxy, confs, clss):
-                    label = COCO_NAMES.get(int(cls), "object")
-                    tracks.append(Track(int(tid), tuple(float(v) for v in box), label,
-                                          float(conf), int(cls)))
+            # Frame skipping: only run YOLO every detect_interval frames
+            if i % self._detect_interval == 0:
+                results = self.model.track(
+                    frame,
+                    persist=True,
+                    conf=self.cfg.conf,
+                    imgsz=self.cfg.imgsz,
+                    classes=list(self.cfg.classes),
+                    tracker=self.cfg.tracker,
+                    verbose=False,
+                )
+                tracks: list[Track] = []
+                boxes = results[0].boxes
+                if boxes is not None and boxes.id is not None:
+                    ids = boxes.id.cpu().numpy().astype(int)
+                    xyxy = boxes.xyxy.cpu().numpy()
+                    confs = boxes.conf.cpu().numpy()
+                    clss = boxes.cls.cpu().numpy()
+                    for tid, box, conf, cls in zip(ids, xyxy, confs, clss):
+                        label = COCO_NAMES.get(int(cls), "object")
+                        tracks.append(Track(int(tid), tuple(float(v) for v in box), label,
+                                              float(conf), int(cls)))
+                self._last_tracks = tracks
+            else:
+                # Reuse last detection with ByteTrack persistence
+                tracks = self._last_tracks
             st = FrameState(frame_id=i, timestamp=i / self._fps, tracks=tracks,
                             frame_w=frame.shape[1], frame_h=frame.shape[0], frame=frame)
             if self._pose is not None:

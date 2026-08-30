@@ -11,7 +11,7 @@ def build_engine(app: AppConfig) -> RulesEngine:
     return RulesEngine(app.rules, app.zones, cooldown_sec=app.alert.cooldown_sec)
 
 
-def make_detector(app: AppConfig, detector: str | None = None, source: str | None = None) -> Detector:
+def make_detector(app: AppConfig, detector: str | None = None, source: str | None = None, detect_interval: int = 1) -> Detector:
     """Choose a detector. `auto` -> blob for the synthetic source, yolo otherwise."""
     choice = (detector or app.detector).lower()
     if choice == "auto":
@@ -20,7 +20,7 @@ def make_detector(app: AppConfig, detector: str | None = None, source: str | Non
         return BlobDetector(default_scenario(app.synthetic), fps=app.synthetic.fps,
                             width=app.synthetic.width, height=app.synthetic.height)
     if choice == "yolo":
-        return YoloDetector(app.model)
+        return YoloDetector(app.model, detect_interval=detect_interval)
     raise ValueError(f"unknown detector: {choice} (expected blob | yolo | auto)")
 
 
