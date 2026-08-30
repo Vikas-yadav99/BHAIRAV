@@ -1541,7 +1541,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         if trajectory_predictor is None:
             return {"person_id": person_id, "current": None, "predictions": [], "enabled": False}
         predictions = trajectory_predictor.predict_multi(person_id, h_list)
-        if predictions is None:
+        if not predictions:
             raise HTTPException(status_code=404,
                                 detail=f"person '{person_id}' not found")
         traj = trajectory_predictor.get_trajectory(person_id)

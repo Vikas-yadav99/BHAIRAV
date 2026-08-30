@@ -22,3 +22,9 @@ deploy/prometheus-token
 # VS Code (personal settings)
 .vscode/
 .vscode/*
+
+# Stray files from development
+crowd_runner.py
+prescan_clips.py
+crowd_runner.py.b64
+src/bhairav.egg-info/
