@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report Incident - BHAIRAV</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui;background:#0b1120;color:#e2e8f0;min-height:100vh}
+.c{max-width:480px;margin:0 auto;padding:20px}
+h1{font-size:24px;margin-bottom:8px;color:#22d3ee}
+.sub{color:#64748b;margin-bottom:24px;font-size:14px}
+.fg{margin-bottom:16px}
+label{display:block;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+input,textarea{width:100%;background:#0d1526;color:#e2e8f0;border:1px solid #1e293b;border-radius:8px;padding:12px;font-size:16px}
+textarea{height:80px;resize:vertical}
+.sg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.sb{padding:12px 8px;border:2px solid #1e293b;border-radius:8px;text-align:center;cursor:pointer;background:#0d1526}
+.sb:hover{border-color:#64748b}
+.sb.sel{border-color:#22d3ee;background:#0d2936}
+.sb .lv{font-size:20px;font-weight:bold}
+.sb .lb{font-size:11px;color:#64748b;margin-top:4px}
+.l1{color:#22c55e}.l2{color:#eab308}.l3{color:#f97316}.l4{color:#ef4444}
+.cg{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.cb{padding:12px;border:2px solid #1e293b;border-radius:8px;text-align:center;cursor:pointer;background:#0d1526}
+.cb:hover{border-color:#64748b}
+.cb.sel{border-color:#22d3ee;background:#0d2936}
+.cb .ic{font-size:24px}
+.cb .nm{font-size:12px;color:#94a3b8;margin-top:4px}
+.ld{background:#0d1526;border:1px solid #1e293b;border-radius:8px;padding:12px;margin-bottom:16px}
+.ld .co{color:#22d3ee;font-family:monospace}
+.btn{width:100%;padding:14px;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;margin-top:8px}
+.bp{background:#ef4444;color:white}.bp:hover{background:#dc2626}.bp:disabled{background:#374151}
+.ok{display:none;text-align:center;padding:40px 20px}
+.ok .ic2{font-size:64px;margin-bottom:16px}
+.ok h2{color:#22c55e;margin-bottom:8px}
+.ok .iid{color:#22d3ee;font-family:monospace;font-size:18px}
+.err{color:#ef4444;font-size:13px;margin-top:8px;display:none}
+.bl{display:block;text-align:center;color:#64748b;margin-top:16px;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="c">
+<div id="rf">
+<h1>&#x1F6A8; Report Incident</h1>
+<p class="sub">Help keep your city safe. Your report will be dispatched to nearby officers.</p>
+<div class="ld">
+<label>Your Location</label>
+<div id="lt" class="co">Detecting location...</div>
+<input type="hidden" id="lat" value="28.6139">
+<input type="hidden" id="lng" value="77.2090">
+</div>
+<div class="fg">
+<label>What is happening?</label>
+<div class="cg">
+<div class="cb" data-cat="medical" onclick="selCat(this)"><div class="ic">&#x1F691;</div><div class="nm">Medical</div></div>
+<div class="cb" data-cat="fire" onclick="selCat(this)"><div class="ic">&#x1F525;</div><div class="nm">Fire</div></div>
+<div class="cb" data-cat="crime" onclick="selCat(this)"><div class="ic">&#x1F6A8;</div><div class="nm">Crime</div></div>
+<div class="cb" data-cat="road_accident" onclick="selCat(this)"><div class="ic">&#x1F697;</div><div class="nm">Accident</div></div>
+<div class="cb" data-cat="disaster" onclick="selCat(this)"><div class="ic">&#x1F30A;</div><div class="nm">Disaster</div></div>
+<div class="cb" data-cat="missing_person" onclick="selCat(this)"><div class="ic">&#x1F464;</div><div class="nm">Missing</div></div>
+<div class="cb" data-cat="other" onclick="selCat(this)"><div class="ic">&#x26A0;&#xFE0F;</div><div class="nm">Other</div></div>
+</div>
+</div>
+<div class="fg">
+<label>Emergency Level</label>
+<div class="sg">
+<div class="sb" data-level="1" onclick="selLvl(this)"><div class="lv l1">1</div><div class="lb">Low</div></div>
+<div class="sb" data-level="2" onclick="selLvl(this)"><div class="lv l2">2</div><div class="lb">Medium</div></div>
+<div class="sb sel" data-level="3" onclick="selLvl(this)"><div class="lv l3">3</div><div class="lb">High</div></div>
+<div class="sb" data-level="4" onclick="selLvl(this)"><div class="lv l4">4</div><div class="lb">Critical</div></div>
+</div>
+</div>
+<div class="fg"><label>Location Name</label><input type="text" id="ln" placeholder="e.g. Near Temple, Main Road"></div>
+<div class="fg"><label>Description</label><textarea id="desc" placeholder="What do you see? How many people? Any injuries?"></textarea></div>
+<div class="fg"><label>Your Name (optional)</label><input type="text" id="rn" placeholder="Anonymous"></div>
+<div class="fg"><label>Phone (optional)</label><input type="tel" id="rp" placeholder="+91-XXXXXXXXXX"></div>
+<div id="em" class="err"></div>
+<button class="btn bp" id="sb" onclick="submit()">&#x1F6A8; Report Emergency</button>
+</div>
+<div id="sm" class="ok">
+<div class="ic2">&#x2705;</div>
+<h2>Incident Reported!</h2>
+<p>Your report has been received and is being processed.</p>
+<p class="iid" id="iid"></p>
+<p style="color:#64748b;margin-top:8px;" id="di"></p>
+<a href="/dashboard/report.html" class="bl">Report another incident</a>
+</div>
+</div>
+<script>
+var sc='',sl=3;
+function selCat(e){document.querySelectorAll('.cb').forEach(function(b){b.classList.remove('sel')});e.classList.add('sel');sc=e.dataset.cat;}
+function selLvl(e){document.querySelectorAll('.sb').forEach(function(b){b.classList.remove('sel')});e.classList.add('sel');sl=parseInt(e.dataset.level);}
+if(navigator.geolocation){navigator.geolocation.getCurrentPosition(function(p){document.getElementById('lat').value=p.coords.latitude;document.getElementById('lng').value=p.coords.longitude;document.getElementById('lt').textContent=p.coords.latitude.toFixed(4)+', '+p.coords.longitude.toFixed(4);},function(){document.getElementById('lt').textContent='Location unavailable (using default)';});}
+async function submit(){
+if(!sc){document.getElementById('em').textContent='Please select incident type';document.getElementById('em').style.display='block';return;}
+document.getElementById('sb').disabled=true;document.getElementById('sb').textContent='Sending...';
+try{
+var r=await fetch('/api/incidents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:sc,emergency_level:sl,lat:parseFloat(document.getElementById('lat').value),lng:parseFloat(document.getElementById('lng').value),location_name:document.getElementById('ln').value||'Unknown',description:document.getElementById('desc').value,reporter_name:document.getElementById('rn').value,reporter_phone:document.getElementById('rp').value,source:'public'})});
+var d=await r.json();
+document.getElementById('rf').style.display='none';document.getElementById('sm').style.display='block';
+document.getElementById('iid').textContent='ID: '+d.incident.id;
+document.getElementById('di').textContent=d.dispatched_officers&&d.dispatched_officers.length>0?d.dispatched_officers.length+' officer(s) dispatched!':'Officers will be notified shortly.';
+}catch(e){document.getElementById('em').textContent='Failed: '+e.message;document.getElementById('em').style.display='block';document.getElementById('sb').disabled=false;document.getElementById('sb').textContent='Report Emergency';}
+}
+</script>
+</body>
+</html>
