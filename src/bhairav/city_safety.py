@@ -10,7 +10,6 @@ This module fills the gaps between camera detection and real-world response:
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import math
@@ -911,12 +910,11 @@ class CitySafetyEngine:
         message = alert.get("message", "")
 
         # Map rule to category
-        from camera_bridge import RULE_TO_CATEGORY, SEVERITY_TO_LEVEL
+        from .camera_bridge import RULE_TO_CATEGORY, SEVERITY_TO_LEVEL
         category = RULE_TO_CATEGORY.get(rule, "other")
         level = SEVERITY_TO_LEVEL.get(severity, 2)
 
         # Get camera position
-        from camera_bridge import CameraIncidentBridge
         camera_positions = {
             "CAM-01": (28.6139, 77.2090),
             "CAM-02": (28.6150, 77.2100),

@@ -10,18 +10,11 @@ This fills the gap for people without smartphones or internet access.
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
-import json
 import logging
-import math
 import time
 import uuid
 from collections import Counter
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Callable
-
+from dataclasses import dataclass
 log = logging.getLogger("bhairav.phone_gateway")
 
 

@@ -1664,4 +1664,197 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         except WebSocketDisconnect:
             pass
 
+
+    # ---- City Safety Engine (dedup, GPS, notifications, metrics) --------
+    from ..city_safety import CitySafetyEngine
+    city_safety = CitySafetyEngine(
+        inc_store, hub=hub, dispatch_engine=inc_dispatch,
+    )
+    log.info("City Safety engine active (dedup + GPS + notifications + metrics)")
+
+    # ---- Phone Gateway (SMS, WhatsApp, IVR) ----------------------------
+    from ..phone_gateway import PhoneGateway
+    phone_gw = PhoneGateway()
+    log.info("Phone Gateway active (SMS stub + WhatsApp stub + IVR)")
+
+    # ---- City Analytics (trends, heatmaps, exports) ---------------------
+    from ..city_analytics import AnalyticsEngine as CityAnalytics
+    city_analytics = CityAnalytics(inc_store)
+    log.info("City Analytics active (trends + heatmaps + exports)")
+
+    # ---- API Routes: Phone Gateway --------------------------------------
+    @app.post("/api/phone/sms")
+    def receive_sms(body: dict = {}):
+        """Receive SMS incident report."""
+        phone = body.get("phone", "")
+        message = body.get("message", "")
+        if not phone or not message:
+            return {"error": "phone and message required"}, 400
+        report = phone_gw.receive_sms(phone, message)
+        parsed = report["parsed"]
+        result = city_safety.report_incident(
+            category=parsed["category"],
+            lat=body.get("lat", 28.6139),
+            lng=body.get("lng", 77.2090),
+            emergency_level=parsed["emergency_level"],
+            description=message,
+            reporter_phone=phone,
+            source="sms",
+        )
+        return {"report": report, "incident_result": result}
+
+    @app.post("/api/phone/whatsapp")
+    def receive_whatsapp(body: dict = {}):
+        """Receive WhatsApp incident report."""
+        phone = body.get("phone", "")
+        message = body.get("message", "")
+        if not phone or not message:
+            return {"error": "phone and message required"}, 400
+        report = phone_gw.receive_whatsapp(phone, message)
+        parsed = report["parsed"]
+        result = city_safety.report_incident(
+            category=parsed["category"],
+            lat=body.get("lat", 28.6139),
+            lng=body.get("lng", 77.2090),
+            emergency_level=parsed["emergency_level"],
+            description=message,
+            reporter_phone=phone,
+            source="whatsapp",
+        )
+        return {"report": report, "incident_result": result}
+
+    @app.post("/api/phone/ivr/start")
+    def ivr_start(body: dict = {}):
+        """Start IVR call session."""
+        phone = body.get("phone", "")
+        if not phone:
+            return {"error": "phone required"}, 400
+        return phone_gw.start_ivr_call(phone)
+
+    @app.post("/api/phone/ivr/input")
+    def ivr_input(body: dict = {}):
+        """Process IVR DTMF input."""
+        call_id = body.get("call_id", "")
+        key = body.get("key", "")
+        result = phone_gw.ivr.process_input(call_id, key)
+        if result.get("completed") and result.get("incident"):
+            inc = result["incident"]
+            city_safety.report_incident(
+                category=inc["category"],
+                lat=body.get("lat", 28.6139),
+                lng=body.get("lng", 77.2090),
+                emergency_level=inc["emergency_level"],
+                description=inc.get("description", ""),
+                reporter_phone=inc.get("caller_phone", ""),
+                source="ivr",
+            )
+        return result
+
+    @app.post("/api/phone/verify/send")
+    def verify_send_otp(body: dict = {}):
+        """Send OTP for phone verification."""
+        phone = body.get("phone", "")
+        if not phone:
+            return {"error": "phone required"}, 400
+        return phone_gw.send_otp(phone)
+
+    @app.post("/api/phone/verify/check")
+    def verify_check_otp(body: dict = {}):
+        """Verify phone with OTP."""
+        phone = body.get("phone", "")
+        otp = body.get("otp", "")
+        return phone_gw.verify_phone(phone, otp)
+
+    @app.get("/api/phone/reports")
+    def phone_reports(limit: int = 50):
+        """Get recent phone reports."""
+        return {"reports": phone_gw.get_reports(limit)}
+
+    # ---- API Routes: Analytics & Export ----------------------------------
+    @app.get("/api/analytics")
+    def get_analytics(hours: float = 24):
+        """Full analytics dashboard data."""
+        return city_analytics.get_full_analytics(hours)
+
+    @app.get("/api/analytics/patterns")
+    def get_patterns():
+        """Alert patterns and predictive insights."""
+        return city_analytics.get_alert_patterns()
+
+    @app.get("/api/analytics/export/csv")
+    def export_csv(hours: float = None):
+        """Export incidents as CSV."""
+        from fastapi.responses import Response as _Resp
+        csv_data = city_analytics.export_csv(hours)
+        return _Resp(content=csv_data, media_type="text/csv",
+                     headers={"Content-Disposition": "attachment; filename=bhairav_report.csv"})
+
+    @app.get("/api/analytics/export/json")
+    def export_json(hours: float = None):
+        """Export incidents as JSON report."""
+        return city_analytics.export_json(hours)
+
+    @app.get("/api/analytics/export/geojson")
+    def export_geojson(hours: float = None):
+        """Export incidents as GeoJSON for mapping tools."""
+        return city_analytics.export_geojson(hours)
+
+    @app.get("/api/analytics/heatmap")
+    def get_heatmap():
+        """Geographic heatmap of incident density."""
+        return {"heatmap": city_analytics.heatmap.generate(
+            [i.to_dict() for i in inc_store.list_incidents(limit=10000)]
+        )}
+
+    @app.get("/api/analytics/officers")
+    def officer_analytics():
+        """Officer performance metrics."""
+        return {"officers": city_analytics.officer_analytics.get_officer_stats(),
+                "team": city_analytics.officer_analytics.get_team_summary()}
+
+    # ---- API Routes: City Safety Engine ----------------------------------
+    @app.get("/api/safety/dashboard")
+    def safety_dashboard():
+        """Full city safety dashboard data."""
+        return city_safety.get_operator_dashboard()
+
+    @app.get("/api/safety/stats")
+    def safety_stats():
+        """City safety engine statistics."""
+        return city_safety.stats()
+
+    @app.post("/api/safety/report")
+    def safety_report(body: dict = {}):
+        """Report incident through city safety engine (with dedup)."""
+        return city_safety.report_incident(
+            category=body.get("category", "other"),
+            lat=float(body.get("lat", 0)),
+            lng=float(body.get("lng", 0)),
+            emergency_level=int(body.get("emergency_level", 1)),
+            description=body.get("description", ""),
+            reporter_phone=body.get("reporter_phone", ""),
+            reporter_name=body.get("reporter_name", ""),
+            source=body.get("source", "public"),
+        )
+
+    @app.post("/api/safety/gps")
+    def safety_gps(body: dict = {}):
+        """Update officer GPS position."""
+        officer_id = body.get("officer_id", "")
+        lat = float(body.get("lat", 0))
+        lng = float(body.get("lng", 0))
+        speed = float(body.get("speed", 0))
+        heading = float(body.get("heading", 0))
+        return city_safety.officer_update_gps(officer_id, lat, lng, speed, heading)
+
+    @app.post("/api/safety/resolve")
+    def safety_resolve(body: dict = {}):
+        """Resolve incident with proof."""
+        return city_safety.resolve(
+            body.get("incident_id", ""),
+            body.get("officer_id", ""),
+            body.get("notes", ""),
+            body.get("photos", []),
+        )
+
     return app
