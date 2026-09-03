@@ -726,3 +726,116 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
         """Find nearest available officers."""
         results = dispatch_engine.find_nearest_officers(lat, lng, role=role, radius_km=radius)
         return {"officers": [{"distance_km": round(d, 2), "officer": o.to_dict()} for d, o in results]}
+
+    # ── Officer App Endpoints ─────────────────────────────────────────
+    @app.post("/api/officer/login")
+    def officer_login(body: dict = {}):
+        """Officer login by phone number or ID. No password needed —
+        officers authenticate by possession of a registered device."""
+        phone = str(body.get("phone", "")).strip()
+        officer_id = str(body.get("officer_id", "")).strip()
+        if not phone and not officer_id:
+            return {"error": "phone or officer_id required"}, 400
+        # Find by ID first, then by phone
+        off = None
+        if officer_id:
+            off = store.get_officer(officer_id)
+        if not off and phone:
+            for o in store.list_officers():
+                if o.phone == phone:
+                    off = o
+                    break
+        if not off:
+            return {"error": "Officer not found. Register first."}, 404
+        # Generate a simple token (officer_id + timestamp)
+        import hmac as _hmac
+        import hashlib
+        payload = f"{off.id}:{int(time.time())}"
+        sig = _hmac.new(b"bhairav-officer", payload.encode(), hashlib.sha256).hexdigest()[:16]
+        token = f"{payload}:{sig}"
+        return {
+            "token": token,
+            "officer": off.to_dict(),
+        }
+
+    @app.post("/api/officer/heartbeat")
+    def officer_heartbeat(body: dict = {}, store_ref=store):
+        """Officer sends GPS location heartbeat."""
+        token = str(body.get("token", ""))
+        lat = float(body.get("lat", 0))
+        lng = float(body.get("lng", 0))
+        officer_id = token.split(":")[0] if ":" in token else ""
+        off = store_ref.get_officer(officer_id)
+        if not off:
+            return {"error": "Invalid token"}, 401
+        store_ref.update_officer(officer_id, location_lat=lat, location_lng=lng)
+        # Return any new incidents assigned to this officer
+        assigned = [i for i in store_ref.list_incidents(status="dispatched")
+                    if officer_id in i.assigned_officers]
+        return {
+            "ok": True,
+            "officer": off.to_dict(),
+            "pending_incidents": [i.to_dict() for i in assigned],
+        }
+
+    @app.get("/api/officer/my-incidents")
+    def officer_my_incidents(token: str = ""):
+        """Get incidents assigned to this officer."""
+        officer_id = token.split(":")[0] if ":" in token else ""
+        off = store.get_officer(officer_id)
+        if not off:
+            return {"error": "Invalid token"}, 401
+        # All incidents this officer is involved in
+        all_inc = store.list_incidents()
+        my_inc = [i for i in all_inc if officer_id in i.assigned_officers]
+        return {"incidents": [i.to_dict() for i in my_inc], "officer": off.to_dict()}
+
+    @app.post("/api/officer/respond")
+    def officer_respond(body: dict = {}):
+        """Officer responds to an incident (accept, en-route, on-scene, resolved)."""
+        token = str(body.get("token", ""))
+        incident_id = str(body.get("incident_id", ""))
+        action = str(body.get("action", ""))  # accept, en_route, on_scene, resolved
+        note = str(body.get("note", ""))
+        officer_id = token.split(":")[0] if ":" in token else ""
+        off = store.get_officer(officer_id)
+        if not off:
+            return {"error": "Invalid token"}, 401
+        inc = store.get_incident(incident_id)
+        if not inc:
+            return {"error": "Incident not found"}, 404
+
+        STATUS_MAP = {
+            "accept": (OfficerStatus.EN_ROUTE.value, IncidentStatus.DISPATCHED.value),
+            "en_route": (OfficerStatus.EN_ROUTE.value, IncidentStatus.EN_ROUTE.value),
+            "on_scene": (OfficerStatus.ON_SCENE.value, IncidentStatus.ON_SCENE.value),
+            "resolved": (OfficerStatus.AVAILABLE.value, IncidentStatus.RESOLVED.value),
+        }
+        if action not in STATUS_MAP:
+            return {"error": f"Unknown action: {action}. Use: accept, en_route, on_scene, resolved"}, 400
+
+        off_status, inc_status = STATUS_MAP[action]
+        store.update_officer(officer_id, status=off_status,
+                            current_incident=incident_id if action != "resolved" else None)
+        store.update_incident(incident_id, status=inc_status, note=note or f"Officer {off.name} -> {action}")
+
+        # If resolved, free the officer
+        if action == "resolved":
+            store.update_officer(officer_id, status=OfficerStatus.AVAILABLE.value, current_incident=None)
+
+        inc = store.get_incident(incident_id)
+        return {"incident": inc.to_dict(), "officer": store.get_officer(officer_id).to_dict()}
+
+    @app.post("/api/officer/register")
+    def register_officer(body: dict = {}):
+        """Register a new officer (admin endpoint for onboarding)."""
+        name = str(body.get("name", "")).strip()
+        role = str(body.get("role", "police")).strip()
+        phone = str(body.get("phone", "")).strip()
+        lat = float(body.get("lat", 28.6139))
+        lng = float(body.get("lng", 77.2090))
+        specialty = body.get("specialty", [])
+        if not name:
+            return {"error": "name is required"}, 400
+        off = store.register_officer(name, role, phone, lat, lng, specialty)
+        return {"officer": off.to_dict(), "message": f"Officer {name} registered"}

@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>BHAIRAV Warrior — Field Dashboard</title>
+<style>
+:root {
+  --bg: #0b1120; --panel: #0f172a; --border: #1e293b;
+  --text: #e2e8f0; --muted: #64748b; --dim: #94a3b8;
+  --green: #22c55e; --yellow: #eab308; --orange: #f97316; --red: #ef4444; --cyan: #22d3ee;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; min-height: 100dvh; display: flex; flex-direction: column; }
+
+/* Login */
+.login-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.login-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 32px; width: 100%; max-width: 380px; }
+.login-card h1 { font-size: 20px; margin-bottom: 4px; }
+.login-card .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+.field { margin-bottom: 14px; }
+.field label { display: block; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+.field input { width: 100%; background: #0d1526; color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font-size: 16px; }
+.btn { border: none; border-radius: 10px; padding: 14px 20px; font-weight: 700; font-size: 15px; width: 100%; }
+.btn-primary { background: var(--cyan); color: #06222b; }
+.btn-green { background: var(--green); color: #fff; }
+.btn-orange { background: var(--orange); color: #fff; }
+.btn-red { background: var(--red); color: #fff; }
+.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+.err { color: var(--red); font-size: 13px; margin-bottom: 12px; min-height: 18px; }
+
+/* Top bar */
+.topbar { display: flex; align-items: center; gap: 12px; padding: 0 16px; height: 52px; background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20; }
+.brand { font-weight: 800; font-size: 15px; white-space: nowrap; }
+.brand span { color: var(--cyan); }
+.spacer { flex: 1; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.status-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 1.6s infinite; }
+@keyframes pulse { 50% { opacity: .4; } }
+.officer-badge { font-size: 11px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--dim); }
+.officer-badge .role { color: var(--cyan); text-transform: uppercase; font-weight: 700; }
+
+/* Main content */
+.main { flex: 1; padding: 16px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+/* Incident card */
+.incident-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 14px; overflow: hidden; }
+.incident-header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.incident-header .emoji { font-size: 24px; }
+.incident-header .info { flex: 1; }
+.incident-header .id { font-weight: 700; font-size: 14px; }
+.incident-header .loc { color: var(--muted); font-size: 12px; }
+.level-badge { font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 999px; letter-spacing: .5px; }
+.status-badge { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 999px; letter-spacing: .5px; }
+.incident-body { padding: 14px 16px; }
+.incident-body .desc { font-size: 14px; margin-bottom: 8px; line-height: 1.4; }
+.incident-body .meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.incident-actions { display: flex; gap: 10px; padding: 14px 16px; border-top: 1px solid var(--border); }
+.incident-actions .btn { flex: 1; padding: 12px; font-size: 14px; }
+
+/* Timeline */
+.timeline { padding: 12px 16px; border-top: 1px solid var(--border); }
+.timeline-item { display: flex; gap: 8px; padding: 6px 0; font-size: 12px; border-bottom: 1px solid var(--border); }
+.timeline-item:last-child { border-bottom: none; }
+.timeline-item .dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+.timeline-item .ts { color: var(--muted); white-space: nowrap; }
+.timeline-item .note { color: var(--dim); flex: 1; }
+
+/* GPS bar */
+.gps-bar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: #0d1526; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); position: sticky; bottom: 0; }
+.gps-bar .gps-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.gps-bar .coords { font-variant-numeric: tabular-nums; }
+
+/* Empty state */
+.empty { text-align: center; padding: 48px 24px; color: var(--muted); }
+.empty .icon { font-size: 48px; margin-bottom: 12px; }
+.empty h3 { font-size: 16px; color: var(--text); margin-bottom: 6px; }
+
+/* Alert animation */
+@keyframes alertPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); } 50% { box-shadow: 0 0 0 12px rgba(239,68,68,0); } }
+.critical { animation: alertPulse 1.5s infinite; }
+
+/* Nav tabs */
+.nav { display: flex; gap: 4px; padding: 8px 16px; }
+.nav-btn { flex: 1; background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 10px; padding: 10px; font-size: 12px; font-weight: 600; text-align: center; }
+.nav-btn.active { background: #0d1526; color: var(--cyan); border-color: var(--cyan); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// ── State ─────────────────────────────────────────────────────
+var state = {
+  officer: null,
+  token: null,
+  incidents: [],
+  view: 'alerts', // alerts, active, history
+  gps: { lat: 0, lng: 0 },
+  gpsWatch: null,
+  ws: null,
+  connected: false,
+};
+
+var API = location.origin;
+var CATEGORY_EMOJI = { medical:'🚑', fire:'🔥', crime:'⚠️', road_accident:'🚗', disaster:'🌊', missing_person:'👤', other:'📋' };
+var LEVEL_COLORS = { 1:'#22c55e', 2:'#eab308', 3:'#f97316', 4:'#ef4444' };
+var STATUS_COLORS = { reported:'#eab308', verified:'#f97316', dispatched:'#22d3ee', en_route:'#3b82f6', on_scene:'#8b5cf6', resolved:'#22c55e', cancelled:'#64748b' };
+
+// ── API helpers ───────────────────────────────────────────────
+function apiPost(path, body) {
+  return fetch(API + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  }).then(function(r) { return r.json(); });
+}
+function apiGet(path) {
+  return fetch(API + path).then(function(r) { return r.json(); });
+}
+
+// ── Login ─────────────────────────────────────────────────────
+function renderLogin() {
+  var app = document.getElementById('app');
+  app.innerHTML =
+    '<div class="login-wrap"><div class="login-card">' +
+      '<h1>🛡️ BHAIRAV <span style="color:var(--cyan)">Warrior</span></h1>' +
+      '<div class="sub">Field Officer Dashboard — Login with your registered phone number</div>' +
+      '<div class="field"><label>Phone Number</label>' +
+        '<input id="phone" type="tel" placeholder="+91-9876543210" value="+91-9876543210"></div>' +
+      '<div class="field"><label>Or Officer ID</label>' +
+        '<input id="oid" type="text" placeholder="officer ID (optional)"></div>' +
+      '<div class="err" id="err"></div>' +
+      '<button class="btn btn-primary" id="loginBtn">Sign In as Warrior</button>' +
+      '<div class="sub" style="margin-top:16px;text-align:center;font-size:11px;">' +
+        'Demo: +91-9876543210 (Raj Kumar, police)<br>' +
+        '+91-9876543211 (Priya Singh, medical)<br>' +
+        '+91-9876543212 (Amit Verma, fire)' +
+      '</div>' +
+    '</div></div>';
+
+  document.getElementById('loginBtn').onclick = function() {
+    var phone = document.getElementById('phone').value.trim();
+    var oid = document.getElementById('oid').value.trim();
+    apiPost('/api/officer/login', { phone: phone, officer_id: oid }).then(function(d) {
+      if (d.error) { document.getElementById('err').textContent = d.error; return; }
+      state.officer = d.officer;
+      state.token = d.token;
+      localStorage.setItem('bhairav-officer', JSON.stringify({ token: d.token, officer: d.officer }));
+      startApp();
+    }).catch(function(e) {
+      document.getElementById('err').textContent = 'Connection failed: ' + e.message;
+    });
+  };
+}
+
+// ── Main App ──────────────────────────────────────────────────
+function startApp() {
+  renderShell();
+  loadIncidents();
+  startGPS();
+  connectWebSocket();
+}
+
+function renderShell() {
+  var o = state.officer;
+  var app = document.getElementById('app');
+  var alertCount = state.incidents.filter(function(i) { return i.status === 'dispatched' && i.assigned_officers.indexOf(o.id) >= 0; }).length;
+
+  app.innerHTML =
+    '<div class="topbar">' +
+      '<div class="brand">🛡️ <span>Warrior</span></div>' +
+      '<div class="spacer"></div>' +
+      '<span class="status-dot ' + (state.connected ? 'live' : '') + '"></span>' +
+      '<span class="officer-badge">' + o.name.split(' ')[0] + ' · <span class="role">' + o.role + '</span></span>' +
+      '<button class="btn-outline" style="border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:4px 10px;font-size:12px;" ' +
+        'onclick="logout()">✕</button>' +
+    '</div>' +
+    '<div class="nav">' +
+      '<button class="nav-btn ' + (state.view === 'alerts' ? 'active' : '') + '" onclick="setView(\'alerts\')">' +
+        '🚨 Alerts' + (alertCount > 0 ? ' (' + alertCount + ')' : '') + '</button>' +
+      '<button class="nav-btn ' + (state.view === 'active' ? 'active' : '') + '" onclick="setView(\'active\')">📋 Active</button>' +
+      '<button class="nav-btn ' + (state.view === 'history' ? 'active' : '') + '" onclick="setView(\'history\')">📜 History</button>' +
+    '</div>' +
+    '<div class="main" id="content"></div>' +
+    '<div class="gps-bar">' +
+      '<span class="gps-dot"></span>' +
+      '<span class="coords" id="gpsCoords">Acquiring GPS…</span>' +
+      '<span style="flex:1"></span>' +
+      '<span id="gpsStatus">📡 Sharing location</span>' +
+    '</div>';
+  renderContent();
+}
+
+function renderContent() {
+  var content = document.getElementById('content');
+  if (!content) return;
+  var o = state.officer;
+
+  if (state.view === 'alerts') {
+    // New alerts — incidents dispatched to this officer that need accepting
+    var alerts = state.incidents.filter(function(i) {
+      return i.status === 'dispatched' && i.assigned_officers.indexOf(o.id) >= 0;
+    });
+    if (alerts.length === 0) {
+      content.innerHTML = '<div class="empty"><div class="icon">✅</div><h3>No pending alerts</h3><p>New incidents will appear here in real-time</p></div>';
+      return;
+    }
+    content.innerHTML = alerts.map(function(inc) { return renderIncidentCard(inc, 'alert'); }).join('');
+  }
+  else if (state.view === 'active') {
+    // En-route / on-scene incidents
+    var active = state.incidents.filter(function(i) {
+      return (i.status === 'en_route' || i.status === 'on_scene') && i.assigned_officers.indexOf(o.id) >= 0;
+    });
+    if (active.length === 0) {
+      content.innerHTML = '<div class="empty"><div class="icon">📋</div><h3>No active incidents</h3><p>Accept an alert to start responding</p></div>';
+      return;
+    }
+    content.innerHTML = active.map(function(inc) { return renderIncidentCard(inc, 'active'); }).join('');
+  }
+  else if (state.view === 'history') {
+    // Resolved / cancelled
+    var history = state.incidents.filter(function(i) {
+      return (i.status === 'resolved' || i.status === 'cancelled') && i.assigned_officers.indexOf(o.id) >= 0;
+    });
+    // Also show incidents this officer reported
+    history = history.concat(state.incidents.filter(function(i) {
+      return (i.reporter_phone === o.phone || i.reporter_name === o.name) &&
+             i.assigned_officers.indexOf(o.id) < 0;
+    }));
+    if (history.length === 0) {
+      content.innerHTML = '<div class="empty"><div class="icon">📜</div><h3>No history yet</h3><p>Resolved incidents appear here</p></div>';
+      return;
+    }
+    content.innerHTML = history.map(function(inc) { return renderIncidentCard(inc, 'history'); }).join('');
+  }
+}
+
+function renderIncidentCard(inc, mode) {
+  var emoji = CATEGORY_EMOJI[inc.category] || '📋';
+  var lcol = LEVEL_COLORS[inc.emergency_level] || '#eab308';
+  var scol = STATUS_COLORS[inc.status] || '#64748b';
+  var isCritical = inc.emergency_level >= 4 && inc.status !== 'resolved';
+  var timeAgo = formatTimeAgo(inc.created_at);
+
+  var actions = '';
+  if (mode === 'alert') {
+    actions =
+      '<div class="incident-actions">' +
+        '<button class="btn btn-green" onclick="respond(\'' + inc.id + '\',\'accept\')">✅ Accept</button>' +
+        '<button class="btn btn-outline" onclick="respond(\'' + inc.id + '\',\'accept\',\'On my way\')">🏃 Respond</button>' +
+      '</div>';
+  } else if (mode === 'active') {
+    if (inc.status === 'en_route') {
+      actions =
+        '<div class="incident-actions">' +
+          '<button class="btn btn-orange" onclick="respond(\'' + inc.id + '\',\'on_scene\')">📍 On Scene</button>' +
+          '<button class="btn btn-outline" onclick="respond(\'' + inc.id + '\',\'resolved\',\'Resolved en route\')">✅ Resolve</button>' +
+        '</div>';
+    } else if (inc.status === 'on_scene') {
+      actions =
+        '<div class="incident-actions">' +
+          '<button class="btn btn-green" onclick="respond(\'' + inc.id + '\',\'resolved\')">✅ Mark Resolved</button>' +
+        '</div>';
+    }
+  }
+
+  // Timeline
+  var timeline = '';
+  if (inc.timeline && inc.timeline.length > 0) {
+    var items = inc.timeline.slice(-4).reverse().map(function(ev) {
+      var col = STATUS_COLORS[ev.status] || '#64748b';
+      return '<div class="timeline-item">' +
+        '<span class="dot" style="background:' + col + '"></span>' +
+        '<span class="ts">' + formatTime(ev.time) + '</span>' +
+        '<span class="note"><b style="color:' + col + '">' + ev.status + '</b>' + (ev.note ? ' — ' + ev.note : '') + '</span>' +
+      '</div>';
+    }).join('');
+    timeline = '<div class="timeline">' + items + '</div>';
+  }
+
+  return '<div class="incident-card ' + (isCritical ? 'critical' : '') + '">' +
+    '<div class="incident-header">' +
+      '<span class="emoji">' + emoji + '</span>' +
+      '<div class="info">' +
+        '<div class="id">' + inc.id.slice(0, 8) + ' · ' + (inc.location_name || 'Unknown') + '</div>' +
+        '<div class="loc">📍 ' + inc.location.lat.toFixed(4) + ', ' + inc.location.lng.toFixed(4) + ' · ' + timeAgo + '</div>' +
+      '</div>' +
+      '<span class="level-badge" style="background:' + lcol + '22;color:' + lcol + ';border:1px solid ' + lcol + '66">L' + inc.emergency_level + '</span>' +
+    '</div>' +
+    '<div class="incident-body">' +
+      '<div class="desc">' + (inc.description || 'No description provided') + '</div>' +
+      '<div class="meta">👤 Reporter: ' + (inc.reporter_name || 'Anonymous') + ' · ' + (inc.source || 'public') + '</div>' +
+      '<div class="meta">📊 Status: <span style="color:' + scol + '">' + inc.status.toUpperCase().replace('_', ' ') + '</span>' +
+        (inc.crowd_reports > 1 ? ' · 👥 ' + inc.crowd_reports + ' reports' : '') +
+        (inc.ai_verified ? ' · 🤖 AI verified' : '') +
+      '</div>' +
+    '</div>' +
+    timeline + actions +
+  '</div>';
+}
+
+// ── Actions ───────────────────────────────────────────────────
+function respond(incidentId, action, note) {
+  apiPost('/api/officer/respond', {
+    token: state.token,
+    incident_id: incidentId,
+    action: action,
+    note: note || '',
+  }).then(function(d) {
+    if (d.error) { alert(d.error); return; }
+    // Update local state
+    var idx = state.incidents.findIndex(function(i) { return i.id === incidentId; });
+    if (idx >= 0) state.incidents[idx] = d.incident;
+    else state.incidents.unshift(d.incident);
+    state.officer = d.officer;
+    renderShell();
+    // Vibrate on accept
+    if (navigator.vibrate) navigator.vibrate(100);
+  }).catch(function(e) { alert('Failed: ' + e.message); });
+}
+
+function setView(v) {
+  state.view = v;
+  renderShell();
+}
+
+function logout() {
+  localStorage.removeItem('bhairav-officer');
+  if (state.gpsWatch) navigator.geolocation.clearWatch(state.gpsWatch);
+  if (state.ws) state.ws.close();
+  state.officer = null;
+  state.token = null;
+  state.incidents = [];
+  renderLogin();
+}
+
+// ── GPS ───────────────────────────────────────────────────────
+function startGPS() {
+  if (!navigator.geolocation) return;
+  state.gpsWatch = navigator.geolocation.watchPosition(function(pos) {
+    state.gps.lat = pos.coords.latitude;
+    state.gps.lng = pos.coords.longitude;
+    var el = document.getElementById('gpsCoords');
+    if (el) el.textContent = state.gps.lat.toFixed(5) + ', ' + state.gps.lng.toFixed(5);
+    // Heartbeat every 10s
+    if (!state._lastHeartbeat || Date.now() - state._lastHeartbeat > 10000) {
+      state._lastHeartbeat = Date.now();
+      apiPost('/api/officer/heartbeat', { token: state.token, lat: state.gps.lat, lng: state.gps.lng }).then(function(d) {
+        if (d.pending_incidents && d.pending_incidents.length > 0) {
+          d.pending_incidents.forEach(function(inc) {
+            if (!state.incidents.find(function(i) { return i.id === inc.id; })) {
+              state.incidents.unshift(inc);
+            }
+          });
+          renderContent();
+        }
+      }).catch(function() {});
+    }
+  }, function(err) {
+    var el = document.getElementById('gpsStatus');
+    if (el) el.textContent = '⚠️ GPS: ' + err.message;
+  }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 });
+}
+
+// ── WebSocket ─────────────────────────────────────────────────
+function connectWebSocket() {
+  var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  // Officer uses the field dispatch WebSocket
+  // For demo, we poll instead (field WS requires auth token in query)
+  function poll() {
+    if (!state.token) return;
+    apiPost('/api/officer/heartbeat', { token: state.token, lat: state.gps.lat, lng: state.gps.lng }).then(function(d) {
+      if (d.officer) state.officer = d.officer;
+      if (d.pending_incidents) {
+        d.pending_incidents.forEach(function(inc) {
+          var idx = state.incidents.findIndex(function(i) { return i.id === inc.id; });
+          if (idx >= 0) state.incidents[idx] = inc;
+          else state.incidents.unshift(inc);
+        });
+      }
+      renderContent();
+      state.connected = true;
+      var dot = document.querySelector('.status-dot');
+      if (dot) dot.classList.add('live');
+    }).catch(function() {
+      state.connected = false;
+      var dot = document.querySelector('.status-dot');
+      if (dot) dot.classList.remove('live');
+    });
+  }
+  // Also load all incidents for this officer
+  apiGet('/api/officer/my-incidents?token=' + encodeURIComponent(state.token)).then(function(d) {
+    if (d.incidents) state.incidents = d.incidents;
+    renderContent();
+  }).catch(function() {});
+  setInterval(poll, 5000);
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function formatTime(ts) {
+  var d = new Date(ts * 1000);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+function formatTimeAgo(ts) {
+  var sec = Math.floor(Date.now() / 1000 - ts);
+  if (sec < 60) return sec + 's ago';
+  if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
+  if (sec < 86400) return Math.floor(sec / 3600) + 'h ago';
+  return Math.floor(sec / 86400) + 'd ago';
+}
+
+// ── Init ──────────────────────────────────────────────────────
+(function() {
+  try {
+    var saved = JSON.parse(localStorage.getItem('bhairav-officer'));
+    if (saved && saved.token && saved.officer) {
+      state.token = saved.token;
+      state.officer = saved.officer;
+      startApp();
+    } else {
+      renderLogin();
+    }
+  } catch (e) {
+    renderLogin();
+  }
+})();
+</script>
+</body>
+</html>

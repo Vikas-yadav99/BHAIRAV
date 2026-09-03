@@ -488,6 +488,11 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         def root():
             from fastapi.responses import RedirectResponse
             return RedirectResponse(url="/dashboard/")
+
+        @app.get("/officer")
+        def officer_redirect():
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="/dashboard/officer.html")
     else:
         @app.get("/")
         def root():
