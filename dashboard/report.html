@@ -1,108 +1,100 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Report Incident - BHAIRAV</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Report Incident — BHAIRAV</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui;background:#0b1120;color:#e2e8f0;min-height:100vh}
-.c{max-width:480px;margin:0 auto;padding:20px}
-h1{font-size:24px;margin-bottom:8px;color:#22d3ee}
-.sub{color:#64748b;margin-bottom:24px;font-size:14px}
-.fg{margin-bottom:16px}
-label{display:block;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
-input,textarea{width:100%;background:#0d1526;color:#e2e8f0;border:1px solid #1e293b;border-radius:8px;padding:12px;font-size:16px}
-textarea{height:80px;resize:vertical}
-.sg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.sb{padding:12px 8px;border:2px solid #1e293b;border-radius:8px;text-align:center;cursor:pointer;background:#0d1526}
-.sb:hover{border-color:#64748b}
-.sb.sel{border-color:#22d3ee;background:#0d2936}
-.sb .lv{font-size:20px;font-weight:bold}
-.sb .lb{font-size:11px;color:#64748b;margin-top:4px}
-.l1{color:#22c55e}.l2{color:#eab308}.l3{color:#f97316}.l4{color:#ef4444}
-.cg{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-.cb{padding:12px;border:2px solid #1e293b;border-radius:8px;text-align:center;cursor:pointer;background:#0d1526}
-.cb:hover{border-color:#64748b}
-.cb.sel{border-color:#22d3ee;background:#0d2936}
-.cb .ic{font-size:24px}
-.cb .nm{font-size:12px;color:#94a3b8;margin-top:4px}
-.ld{background:#0d1526;border:1px solid #1e293b;border-radius:8px;padding:12px;margin-bottom:16px}
-.ld .co{color:#22d3ee;font-family:monospace}
-.btn{width:100%;padding:14px;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;margin-top:8px}
-.bp{background:#ef4444;color:white}.bp:hover{background:#dc2626}.bp:disabled{background:#374151}
-.ok{display:none;text-align:center;padding:40px 20px}
-.ok .ic2{font-size:64px;margin-bottom:16px}
-.ok h2{color:#22c55e;margin-bottom:8px}
-.ok .iid{color:#22d3ee;font-family:monospace;font-size:18px}
-.err{color:#ef4444;font-size:13px;margin-top:8px;display:none}
-.bl{display:block;text-align:center;color:#64748b;margin-top:16px;text-decoration:none}
+:root {
+  --bg: #0b1120; --panel: #0f172a; --border: #1e293b;
+  --text: #e2e8f0; --muted: #64748b; --dim: #94a3b8;
+  --green: #22c55e; --yellow: #eab308; --orange: #f97316; --red: #ef4444; --cyan: #22d3ee;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; min-height: 100dvh; }
+.container { max-width: 480px; margin: 0 auto; padding: 16px; }
+.header { text-align: center; padding: 24px 0 16px; }
+.header h1 { font-size: 20px; margin-bottom: 4px; }
+.header h1 span { color: var(--cyan); }
+.header .sub { color: var(--muted); font-size: 13px; }
+.map-wrap { width: 100%; height: 200px; background: #0a0f1a; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; position: relative; margin-bottom: 16px; }
+.map-wrap canvas { width: 100%; height: 100%; }
+.map-pin { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -100%); font-size: 28px; pointer-events: none; filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+.map-hint { position: absolute; bottom: 8px; left: 8px; background: rgba(15,23,42,.85); padding: 4px 10px; border-radius: 6px; font-size: 10px; color: var(--muted); }
+.gps-status { position: absolute; top: 8px; right: 8px; display: flex; align-items: center; gap: 6px; background: rgba(15,23,42,.85); padding: 4px 10px; border-radius: 6px; font-size: 10px; color: var(--muted); }
+.gps-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.gps-dot.active { background: var(--green); }
+.field { margin-bottom: 16px; }
+.field label { display: block; color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+.field input, .field select, .field textarea {
+  width: 100%; background: #0d1526; color: var(--text); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px; font-size: 15px; font-family: inherit;
+}
+.field textarea { min-height: 80px; resize: vertical; }
+.field input::placeholder, .field textarea::placeholder { color: #334155; }
+.cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cat-btn { background: #0d1526; border: 2px solid var(--border); border-radius: 10px; padding: 12px 8px; text-align: center; cursor: pointer; transition: all .15s; }
+.cat-btn:hover { border-color: #334155; }
+.cat-btn.selected { border-color: var(--cyan); background: rgba(34,211,238,.08); }
+.cat-btn .emoji { font-size: 24px; display: block; margin-bottom: 4px; }
+.cat-btn .label { font-size: 11px; color: var(--muted); }
+.cat-btn.selected .label { color: var(--cyan); }
+.sev-row { display: flex; gap: 8px; }
+.sev-btn { flex: 1; border: 2px solid var(--border); border-radius: 10px; padding: 10px; text-align: center; cursor: pointer; transition: all .15s; background: #0d1526; }
+.sev-btn:hover { border-color: #334155; }
+.sev-btn.selected { border-color: var(--cyan); background: rgba(34,211,238,.08); }
+.sev-btn .level { font-size: 18px; font-weight: 800; }
+.sev-btn .desc { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.sev-btn.s1 .level { color: var(--green); }
+.sev-btn.s2 .level { color: var(--yellow); }
+.sev-btn.s3 .level { color: var(--orange); }
+.sev-btn.s4 .level { color: var(--red); }
+.btn { border: none; border-radius: 12px; padding: 16px 20px; font-weight: 700; font-size: 16px; width: 100%; cursor: pointer; }
+.btn-primary { background: var(--cyan); color: #06222b; }
+.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+.result { text-align: center; padding: 32px 16px; }
+.result .icon { font-size: 56px; margin-bottom: 12px; }
+.result h2 { font-size: 20px; margin-bottom: 8px; }
+.result .id { font-size: 14px; color: var(--cyan); font-family: monospace; margin-bottom: 4px; }
+.result .msg { color: var(--muted); font-size: 13px; margin-bottom: 20px; line-height: 1.5; }
+.nearby { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 16px; }
+.nearby h3 { font-size: 14px; color: var(--dim); margin-bottom: 8px; }
+.nearby-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.nearby-item .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.nearby-item .info { flex: 1; }
+.nearby-item .title { font-weight: 600; }
+.nearby-item .meta { color: var(--muted); font-size: 11px; }
 </style>
 </head>
 <body>
-<div class="c">
-<div id="rf">
-<h1>&#x1F6A8; Report Incident</h1>
-<p class="sub">Help keep your city safe. Your report will be dispatched to nearby officers.</p>
-<div class="ld">
-<label>Your Location</label>
-<div id="lt" class="co">Detecting location...</div>
-<input type="hidden" id="lat" value="28.6139">
-<input type="hidden" id="lng" value="77.2090">
-</div>
-<div class="fg">
-<label>What is happening?</label>
-<div class="cg">
-<div class="cb" data-cat="medical" onclick="selCat(this)"><div class="ic">&#x1F691;</div><div class="nm">Medical</div></div>
-<div class="cb" data-cat="fire" onclick="selCat(this)"><div class="ic">&#x1F525;</div><div class="nm">Fire</div></div>
-<div class="cb" data-cat="crime" onclick="selCat(this)"><div class="ic">&#x1F6A8;</div><div class="nm">Crime</div></div>
-<div class="cb" data-cat="road_accident" onclick="selCat(this)"><div class="ic">&#x1F697;</div><div class="nm">Accident</div></div>
-<div class="cb" data-cat="disaster" onclick="selCat(this)"><div class="ic">&#x1F30A;</div><div class="nm">Disaster</div></div>
-<div class="cb" data-cat="missing_person" onclick="selCat(this)"><div class="ic">&#x1F464;</div><div class="nm">Missing</div></div>
-<div class="cb" data-cat="other" onclick="selCat(this)"><div class="ic">&#x26A0;&#xFE0F;</div><div class="nm">Other</div></div>
-</div>
-</div>
-<div class="fg">
-<label>Emergency Level</label>
-<div class="sg">
-<div class="sb" data-level="1" onclick="selLvl(this)"><div class="lv l1">1</div><div class="lb">Low</div></div>
-<div class="sb" data-level="2" onclick="selLvl(this)"><div class="lv l2">2</div><div class="lb">Medium</div></div>
-<div class="sb sel" data-level="3" onclick="selLvl(this)"><div class="lv l3">3</div><div class="lb">High</div></div>
-<div class="sb" data-level="4" onclick="selLvl(this)"><div class="lv l4">4</div><div class="lb">Critical</div></div>
-</div>
-</div>
-<div class="fg"><label>Location Name</label><input type="text" id="ln" placeholder="e.g. Near Temple, Main Road"></div>
-<div class="fg"><label>Description</label><textarea id="desc" placeholder="What do you see? How many people? Any injuries?"></textarea></div>
-<div class="fg"><label>Your Name (optional)</label><input type="text" id="rn" placeholder="Anonymous"></div>
-<div class="fg"><label>Phone (optional)</label><input type="tel" id="rp" placeholder="+91-XXXXXXXXXX"></div>
-<div id="em" class="err"></div>
-<button class="btn bp" id="sb" onclick="submit()">&#x1F6A8; Report Emergency</button>
-</div>
-<div id="sm" class="ok">
-<div class="ic2">&#x2705;</div>
-<h2>Incident Reported!</h2>
-<p>Your report has been received and is being processed.</p>
-<p class="iid" id="iid"></p>
-<p style="color:#64748b;margin-top:8px;" id="di"></p>
-<a href="/dashboard/report.html" class="bl">Report another incident</a>
-</div>
-</div>
+<div class="container" id="app"></div>
 <script>
-var sc='',sl=3;
-function selCat(e){document.querySelectorAll('.cb').forEach(function(b){b.classList.remove('sel')});e.classList.add('sel');sc=e.dataset.cat;}
-function selLvl(e){document.querySelectorAll('.sb').forEach(function(b){b.classList.remove('sel')});e.classList.add('sel');sl=parseInt(e.dataset.level);}
-if(navigator.geolocation){navigator.geolocation.getCurrentPosition(function(p){document.getElementById('lat').value=p.coords.latitude;document.getElementById('lng').value=p.coords.longitude;document.getElementById('lt').textContent=p.coords.latitude.toFixed(4)+', '+p.coords.longitude.toFixed(4);},function(){document.getElementById('lt').textContent='Location unavailable (using default)';});}
-async function submit(){
-if(!sc){document.getElementById('em').textContent='Please select incident type';document.getElementById('em').style.display='block';return;}
-document.getElementById('sb').disabled=true;document.getElementById('sb').textContent='Sending...';
-try{
-var r=await fetch('/api/incidents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({category:sc,emergency_level:sl,lat:parseFloat(document.getElementById('lat').value),lng:parseFloat(document.getElementById('lng').value),location_name:document.getElementById('ln').value||'Unknown',description:document.getElementById('desc').value,reporter_name:document.getElementById('rn').value,reporter_phone:document.getElementById('rp').value,source:'public'})});
-var d=await r.json();
-document.getElementById('rf').style.display='none';document.getElementById('sm').style.display='block';
-document.getElementById('iid').textContent='ID: '+d.incident.id;
-document.getElementById('di').textContent=d.dispatched_officers&&d.dispatched_officers.length>0?d.dispatched_officers.length+' officer(s) dispatched!':'Officers will be notified shortly.';
-}catch(e){document.getElementById('em').textContent='Failed: '+e.message;document.getElementById('em').style.display='block';document.getElementById('sb').disabled=false;document.getElementById('sb').textContent='Report Emergency';}
-}
-</script>
-</body>
-</html>
+var API = location.origin;
+var CATEGORY_EMOJI = { medical:'\u{1F691}', fire:'\u{1F525}', crime:'\u{26A0}\u{FE0F}', road_accident:'\u{1F697}', disaster:'\u{1F30A}', missing_person:'\u{1F464}', other:'\u{1F4CB}' };
+var CATEGORY_LABELS = { medical:'Medical', fire:'Fire', crime:'Crime', road_accident:'Accident', disaster:'Disaster', missing_person:'Missing', other:'Other' };
+var LEVEL_COLORS = { 1:'#22c55e', 2:'#eab308', 3:'#f97316', 4:'#ef4444' };
+var LEVEL_DESCS = { 1:'Low \u2014 no danger', 2:'Medium \u2014 needs attention', 3:'High \u2014 urgent', 4:'Critical \u2014 life at risk' };
+var state = { lat: 28.6139, lng: 77.2090, category: '', level: 2, gpsActive: false, submitting: false, submitted: false, lastIncident: null };
+function apiPost(path, body) { return fetch(API + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function(r) { return r.json(); }); }
+function apiGet(path) { return fetch(API + path).then(function(r) { return r.json(); }); }
+function render() {
+  var app = document.getElementById('app');
+  if (state.submitted) { renderResult(); return; }
+  app.innerHTML =
+    '<div class="header"><h1>\u{1F6A8} Report <span>Incident</span></h1><div class="sub">Help keep your community safe \u2014 report what you see</div></div>' +
+    '<div class="map-wrap" id="mapWrap"><canvas id="mapCanvas"></canvas><div class="map-pin">\u{1F4CD}</div>' +
+    '<div class="gps-status"><span class="gps-dot ' + (state.gpsActive ? 'active' : '') + '"></span>' + (state.gpsActive ? 'GPS locked' : 'Getting location\u2026') + '</div>' +
+    '<div class="map-hint">Tap map to adjust location</div></div>' +
+    '<div style="font-size:11px;color:var(--muted);margin:-8px 0 16px;text-align:center" id="coords">' + state.lat.toFixed(5) + ', ' + state.lng.toFixed(5) + '</div>' +
+    '<div class="field"><label>What happened?</label><div class="cat-grid">' +
+    Object.keys(CATEGORY_EMOJI).map(function(c) { return '<div class="cat-btn ' + (state.category === c ? 'selected' : '') + '" onclick="selectCat(\'' + c + '\')"><span class="emoji">' + CATEGORY_EMOJI[c] + '</span><span class="label">' + CATEGORY_LABELS[c] + '</span></div>'; }).join('') +
+    '</div></div>' +
+    '<div class="field"><label>How urgent?</label><div class="sev-row">' +
+    [1,2,3,4].map(function(l) { return '<div class="sev-btn s' + l + ' ' + (state.level === l ? 'selected' : '') + '" onclick="selectLevel(' + l + ')"><div class="level">L' + l + '</div><div class="desc">' + LEVEL_DESCS[l] + '</div></div>'; }).join('') +
+    '</div></div>' +
+    '<div class="field"><label>Your name (optional)</label><input id="rname" placeholder="Anonymous"></div>' +
+    '<div class="field"><label>Phone (for updates)</label><input id="rphone" type="tel" placeholder="+91-9876543210"></div>' +
+    '<div class="field"><label>What\'s happening?</label><textarea id="rdesc" placeholder="Describe what you see\u2026"></textarea></div>' +
+    '<button class="btn btn-primary" id="submitBtn" ' + (state.submitting || !state.category ? 'disabled' : '') + ' onclick="submitReport()">' + (sta

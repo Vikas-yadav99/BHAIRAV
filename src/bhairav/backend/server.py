@@ -152,6 +152,7 @@ class LiveHub:
         self._field: set[asyncio.Queue] = set()  # Phase 10 M4: field-dispatch clients
         self._analytics: set[asyncio.Queue] = set()  # Phase 12: analytics feed
         self._max_clients = max_clients
+        self._on_alert = None  # CameraIncidentBridge callback
 
     # ---- sync side (pipeline thread) --------------------------------------
     def publish_frame(self, frame_id: int, timestamp: float, jpeg_b64: str,
@@ -167,6 +168,12 @@ class LiveHub:
     def publish_alert(self, alert: dict) -> None:
         # alerts are global: every client gets them, whatever camera they watch
         self._broadcast({"type": "alert", "alert": alert})
+        # Fire optional camera-bridge callback for auto-incident creation
+        if self._on_alert:
+            try:
+                self._on_alert(alert)
+            except Exception:
+                pass
 
     def publish_field_alert(self, alert: dict) -> None:
         """Phase 10 M4: push an alert ONLY to field-dispatch clients.
@@ -225,6 +232,10 @@ class LiveHub:
 
     def unsubscribe_analytics(self, q: asyncio.Queue) -> None:
         self._analytics.discard(q)
+
+    def set_on_alert(self, callback) -> None:
+        """Register a callback for camera alerts → auto-incident creation."""
+        self._on_alert = callback
 
     def publish_public_frame(self, frame_id: int, timestamp: float,
                              jpeg_b64: str, camera: str = "__public__") -> None:
@@ -493,6 +504,11 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         def officer_redirect():
             from fastapi.responses import RedirectResponse
             return RedirectResponse(url="/dashboard/officer.html")
+
+        @app.get("/report")
+        def report_redirect():
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="/dashboard/report.html")
     else:
         @app.get("/")
         def root():
@@ -1611,6 +1627,13 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
                  len(inc_store.list_officers()))
 
     create_incident_routes(app, inc_store, inc_dispatch)
+
+    # Camera-to-Incident Bridge: auto-creates incidents from camera alerts
+    from ..camera_bridge import CameraIncidentBridge
+    camera_bridge = CameraIncidentBridge(inc_store, inc_dispatch, hub=hub)
+    hub.set_on_alert(lambda alert: camera_bridge.on_camera_alert(
+        alert, alert.get("camera", "")))
+    log.info("Camera-to-Incident bridge active (min_severity=yellow, cooldown=30s)")
 
     # WebSocket: real-time incident feed for operators
     @app.websocket("/ws/incidents")
