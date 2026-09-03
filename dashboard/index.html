@@ -298,6 +298,7 @@ table.tbl td.muted { color: var(--muted); }
 <div id="root"></div>
 <script src="components/core.js"></script>
 <script src="map-tab.js"></script>
+<script src="incidents-tab.js"></script>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef, useCallback } = React;
 
@@ -1918,6 +1919,7 @@ function App() {
 
   const tabs = [
     { id: 'live', label: '📡 Live' },
+    { id: 'incidents', label: '🚨 Incidents' },
     { id: 'evidence', label: '🗂 Evidence' },
     { id: 'status', label: '📊 Status' },
   ];
@@ -1953,6 +1955,7 @@ function App() {
         {tab === 'live' && <LiveTab token={auth.token} />}
         {tab === 'evidence' && <EvidenceTab token={auth.token} role={auth.role} />}
         {tab === 'status' && <StatusTab token={auth.token} role={auth.role} />}
+        {tab === 'incidents' && <IncidentsTab token={auth.token} />}
         {tab === 'dispatch' && <DispatchTab token={auth.token} />}
         {tab === 'assistant' && <AssistantTab token={auth.token} />}
         {tab === 'search' && <SearchTab token={auth.token} role={auth.role} />}

@@ -204,6 +204,13 @@ class LiveHub:
         msg = {"type": "analytics", "data": snapshot}
         asyncio.run_coroutine_threadsafe(self._fanout_analytics(msg), self._loop)
 
+    def publish_incident(self, incident: dict) -> None:
+        """Push an incident update to /ws/incidents operator clients."""
+        if self._loop is None or not self._field:
+            return
+        msg = {"type": "incident", "incident": incident}
+        asyncio.run_coroutine_threadsafe(self._fanout_field(msg), self._loop)
+
     async def _fanout_analytics(self, msg: dict) -> None:
         for q in self._analytics:
             try:
@@ -398,7 +405,9 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
                metrics_token: str | None = None,
                reid=None,
                public_token: str | None = None,
-               notifier=None) -> Any:
+               notifier=None,
+               incident_store=None,
+               incident_dispatch=None) -> Any:
     """Build the FastAPI application. Imports fastapi lazily."""
     try:
         from fastapi import (Body, Depends, FastAPI, HTTPException, Query,
@@ -1580,5 +1589,51 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
                 })
         return {"zone_predictions": zone_predictions,
                 "total_tracked": len(persons)}
+
+    # ---- City Safety Incidents (Phase 1) ----------------------------------
+    from ..incidents import IncidentStore, DispatchEngine as _DispatchEngine
+    from ..incidents import create_incident_routes, seed_demo_data
+
+    inc_store = incident_store or IncidentStore(
+        path=str(Path(store.root).parent / "incidents")
+    )
+    inc_dispatch = incident_dispatch or _DispatchEngine(inc_store)
+
+    # Seed demo officers and incidents on first run
+    if not inc_store.list_officers():
+        seed_demo_data(inc_store)
+        log.info("Seeded %d officers and demo incidents",
+                 len(inc_store.list_officers()))
+
+    create_incident_routes(app, inc_store, inc_dispatch)
+
+    # WebSocket: real-time incident feed for operators
+    @app.websocket("/ws/incidents")
+    async def ws_incidents(websocket: WebSocket):
+        """Real-time incident push for operators. New incidents, status
+        changes, and dispatch events are pushed live."""
+        token = (websocket.query_params.get("token") or "").strip()
+        claims = validate_token(secret, token) if token else None
+        if (claims is None or not _user_active(claims.get("sub", ""))
+                or PERM_ALERTS not in ROLE_PERMISSIONS.get(
+                    claims["role"], frozenset())):
+            await websocket.close(code=4401, reason="unauthorized")
+            return
+        await websocket.accept()
+        q = await hub.subscribe_field()  # reuse field channel for incidents
+        try:
+            # Send current snapshot on connect
+            snapshot = inc_store.get_stats()
+            await websocket.send_text(json.dumps({
+                "type": "snapshot", "data": snapshot
+            }))
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=5.0)
+                    await websocket.send_text(json.dumps(msg))
+                except asyncio.TimeoutError:
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+        except WebSocketDisconnect:
+            pass
 
     return app

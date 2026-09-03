@@ -304,35 +304,221 @@ LEVEL_OFFICER_COUNT = {1: 1, 2: 2, 3: 3, 4: 5}
 LEVEL_DISPATCH_RADIUS = {1: 5.0, 2: 10.0, 3: 15.0, 4: 25.0}
 
 
+# Escalation tiers: if no response after timeout_sec, auto-escalate.
+ESCALATION_TIERS = [
+    {"timeout_sec": 30, "action": "widen_radius", "radius_multiplier": 1.5},
+    {"timeout_sec": 60, "action": "notify_all", "radius_multiplier": 2.0},
+    {"timeout_sec": 120, "action": "escalate_level", "level_bump": 1},
+]
+
 class DispatchEngine:
-    def __init__(self, store):
+    def __init__(self, store, on_dispatch=None, on_escalation=None):
         self.store = store
+        self.on_dispatch = on_dispatch   # callback(incident_dict, assigned_officers)
+        self.on_escalation = on_escalation  # callback(incident_dict, escalation_info)
+        self._pending_escalations = {}  # incident_id -> [(tier_index, timer_handle)]
+        self._lock = __import__("threading").Lock()
 
     def dispatch(self, incident):
+        """Multi-tier dispatch: specialty match → role match → any available."""
         required = CATEGORY_ROLE_MAP.get(incident.category, ["police"])
         num = LEVEL_OFFICER_COUNT.get(incident.emergency_level, 2)
         radius = LEVEL_DISPATCH_RADIUS.get(incident.emergency_level, 10.0)
-        available = []
+
+        # Tier 1: specialty match (officers whose specialty matches category)
+        tier1 = []
         for off in self.store.list_officers(status=OfficerStatus.AVAILABLE.value):
-            if off.role in required or off.specialty:
-                d = haversine_distance(incident.location_lat, incident.location_lng,
-                                       off.location_lat, off.location_lng) / 1000.0
-                if d <= radius:
-                    available.append((d, off))
-        available.sort(key=lambda x: x[0])
+            d = haversine_distance(incident.location_lat, incident.location_lng,
+                                   off.location_lat, off.location_lng) / 1000.0
+            if d <= radius and off.role in required:
+                tier1.append((d, off, "role_match"))
+
+        # Tier 2: specialty overlap (officer specialty intersects category needs)
+        tier2 = []
+        needed_specialties = set(required)
+        for off in self.store.list_officers(status=OfficerStatus.AVAILABLE.value):
+            if any(o[1].id == off.id for o in tier1):
+                continue
+            d = haversine_distance(incident.location_lat, incident.location_lng,
+                                   off.location_lat, off.location_lng) / 1000.0
+            if d <= radius and set(off.specialty or []) & needed_specialties:
+                tier2.append((d, off, "specialty_match"))
+
+        # Tier 3: any available within radius
+        tier3 = []
+        seen_ids = {o[1].id for o in tier1 + tier2}
+        for off in self.store.list_officers(status=OfficerStatus.AVAILABLE.value):
+            if off.id in seen_ids:
+                continue
+            d = haversine_distance(incident.location_lat, incident.location_lng,
+                                   off.location_lat, off.location_lng) / 1000.0
+            if d <= radius:
+                tier3.append((d, off, "any_available"))
+
+        # Merge tiers, sorted by distance within each tier
+        all_candidates = []
+        for tier in [tier1, tier2, tier3]:
+            tier.sort(key=lambda x: x[0])
+            all_candidates.extend(tier)
+
+        # Assign officers
         assigned = []
-        for d, off in available[:num]:
+        for d, off, match_type in all_candidates[:num]:
             off.status = OfficerStatus.DISPATCHED.value
             off.current_incident = incident.id
             incident.assigned_officers.append(off.id)
             assigned.append(off)
+
         if assigned:
             incident.status = IncidentStatus.DISPATCHED.value
-            incident.timeline.append({"status": "dispatched", "time": time.time(),
-                "note": f"Dispatched {len(assigned)} officer(s): {", ".join(o.name for o in assigned)}"})
+            names = ", ".join(o.name for o in assigned)
+            incident.timeline.append({
+                "status": "dispatched", "time": time.time(),
+                "note": f"Dispatched {len(assigned)} officer(s): {names}",
+            })
+        else:
+            # No officers available — mark for escalation
+            incident.timeline.append({
+                "status": "no_response", "time": time.time(),
+                "note": "No available officers within radius",
+            })
+
         self.store._save_incidents()
         self.store._save_officers()
+
+        # Notify callback
+        if self.on_dispatch and assigned:
+            try:
+                self.on_dispatch(incident.to_dict(), [o.to_dict() for o in assigned])
+            except Exception:
+                pass
+
+        # Schedule escalation checks if no officers found or severity is high
+        if not assigned or incident.emergency_level >= 3:
+            self._schedule_escalation(incident)
+
         return assigned
+
+    def _schedule_escalation(self, incident):
+        """Schedule escalation tiers for an unresponded incident."""
+        import threading
+        with self._lock:
+            # Cancel any existing escalation timers for this incident
+            if incident.id in self._pending_escalations:
+                for _, handle in self._pending_escalations[incident.id]:
+                    try:
+                        handle.cancel()
+                    except Exception:
+                        pass
+            self._pending_escalations[incident.id] = []
+
+        for i, tier in enumerate(ESCALATION_TIERS):
+            def make_check(idx=i, t=tier):
+                def check():
+                    self._apply_escalation(incident, idx, t)
+                return check
+
+            timer = threading.Timer(tier["timeout_sec"], make_check())
+            timer.daemon = True
+            timer.start()
+            with self._lock:
+                self._pending_escalations.setdefault(incident.id, []).append((i, timer))
+
+    def _apply_escalation(self, incident, tier_idx, tier):
+        """Apply an escalation tier to an incident."""
+        with self._lock:
+            pending = self._pending_escalations.get(incident.id, [])
+            # Only run if this tier hasn't been superseded
+            active_indices = {idx for idx, _ in pending}
+            if tier_idx not in active_indices:
+                return
+
+        # Re-fetch incident from store (may have been updated)
+        inc = self.store.get_incident(incident.id)
+        if not inc or inc.status in ("resolved", "cancelled"):
+            return
+
+        action = tier["action"]
+        escalation_info = {"tier": tier_idx, "action": action, "time": time.time()}
+
+        if action == "widen_radius" or action == "notify_all":
+            # Try dispatching again with a wider radius
+            multiplier = tier.get("radius_multiplier", 1.5)
+            required = CATEGORY_ROLE_MAP.get(inc.category, ["police"])
+            num = LEVEL_OFFICER_COUNT.get(inc.emergency_level, 2) - len(inc.assigned_officers)
+            if num <= 0:
+                return
+            base_radius = LEVEL_DISPATCH_RADIUS.get(inc.emergency_level, 10.0)
+            wide_radius = base_radius * multiplier
+            additional = []
+            assigned_ids = set(inc.assigned_officers)
+            for off in self.store.list_officers(status=OfficerStatus.AVAILABLE.value):
+                if off.id in assigned_ids:
+                    continue
+                d = haversine_distance(inc.location_lat, inc.location_lng,
+                                       off.location_lat, off.location_lng) / 1000.0
+                if d <= wide_radius and (off.role in required or off.specialty):
+                    additional.append((d, off))
+            additional.sort(key=lambda x: x[0])
+            for d, off in additional[:num]:
+                off.status = OfficerStatus.DISPATCHED.value
+                off.current_incident = inc.id
+                inc.assigned_officers.append(off.id)
+                additional = additional[1:]  # consume
+                num -= 1
+                if num <= 0:
+                    break
+
+            if len(inc.assigned_officers) > len(incident.assigned_officers):
+                new_count = len(inc.assigned_officers) - len(incident.assigned_officers)
+                inc.timeline.append({
+                    "status": "escalated", "time": time.time(),
+                    "note": f"Tier {tier_idx+1}: widened radius to {wide_radius:.1f}km, dispatched {new_count} additional officer(s)",
+                })
+                self.store._save_incidents()
+                self.store._save_officers()
+                escalation_info["officers_added"] = new_count
+
+        elif action == "escalate_level":
+            # Bump emergency level if possible
+            if inc.emergency_level < 4:
+                inc.emergency_level = min(inc.emergency_level + tier.get("level_bump", 1), 4)
+                inc.timeline.append({
+                    "status": "escalated", "time": time.time(),
+                    "note": f"Auto-escalated to level {inc.emergency_level}: no response after {tier['timeout_sec']}s",
+                })
+                self.store._save_incidents()
+                escalation_info["new_level"] = inc.emergency_level
+                # Try dispatch again at new level
+                self.dispatch(inc)
+
+        # Notify callback
+        if self.on_escalation and escalation_info.get("officers_added") or escalation_info.get("new_level"):
+            try:
+                self.on_escalation(inc.to_dict(), escalation_info)
+            except Exception:
+                pass
+
+        # Clean up completed escalation timers
+        if tier_idx == len(ESCALATION_TIERS) - 1:
+            with self._lock:
+                self._pending_escalations.pop(incident.id, None)
+
+    def accept_incident(self, officer_id, incident_id):
+        """Officer accepts/acknowledges an incident."""
+        off = self.store.get_officer(officer_id)
+        inc = self.store.get_incident(incident_id)
+        if not off or not inc:
+            return None
+        off.status = OfficerStatus.EN_ROUTE.value
+        off.current_incident = incident_id
+        inc.timeline.append({
+            "status": "acknowledged", "time": time.time(),
+            "note": f"{off.name} acknowledged the dispatch",
+        })
+        self.store._save_incidents()
+        self.store._save_officers()
+        return inc
 
     def find_nearest_officers(self, lat, lng, role=None, radius_km=10.0, limit=5):
         results = []
@@ -344,6 +530,31 @@ class DispatchEngine:
                 results.append((d, off))
         results.sort(key=lambda x: x[0])
         return results[:limit]
+
+    def get_escalation_status(self, incident_id):
+        """Check escalation status for an incident."""
+        inc = self.store.get_incident(incident_id)
+        if not inc:
+            return None
+        age = time.time() - inc.created_at
+        active_tiers = []
+        with self._lock:
+            pending = self._pending_escalations.get(incident_id, [])
+            for idx, _ in pending:
+                if idx < len(ESCALATION_TIERS):
+                    active_tiers.append({
+                        "tier": idx + 1,
+                        "action": ESCALATION_TIERS[idx]["action"],
+                        "trigger_in": max(0, ESCALATION_TIERS[idx]["timeout_sec"] - age),
+                    })
+        return {
+            "incident_id": incident_id,
+            "age_sec": round(age, 1),
+            "status": inc.status,
+            "emergency_level": inc.emergency_level,
+            "assigned_count": len(inc.assigned_officers),
+            "active_escalations": active_tiers,
+        }
 
 
 def haversine_distance(lat1, lng1, lat2, lng2):
@@ -493,6 +704,22 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
     def incident_stats():
         """Get incident statistics."""
         return store.get_stats()
+
+    @app.post("/api/officers/{officer_id}/accept/{incident_id}")
+    def accept_incident(officer_id: str, incident_id: str):
+        """Officer accepts/dispatches to an incident."""
+        inc = dispatch_engine.accept_incident(officer_id, incident_id)
+        if not inc:
+            return {"error": "Officer or incident not found"}, 404
+        return {"incident": inc.to_dict()}
+
+    @app.get("/api/incidents/{incident_id}/escalation")
+    def escalation_status(incident_id: str):
+        """Check escalation status for an incident."""
+        status = dispatch_engine.get_escalation_status(incident_id)
+        if not status:
+            return {"error": "Incident not found"}, 404
+        return status
 
     @app.get("/api/dispatch/nearest")
     def find_nearest(lat: float, lng: float, role: str = None, radius: float = 10.0):

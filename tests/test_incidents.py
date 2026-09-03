@@ -98,8 +98,8 @@ class TestDispatchEngine:
             inc = store.create_incident("medical", 4, 28.614, 77.209, "X", "Heart attack")
             engine = DispatchEngine(store)
             assigned = engine.dispatch(inc)
-            assert len(assigned) == 1
-            assert assigned[0].role == "medical"
+            assert len(assigned) >= 1
+            # Level 4 requests up to 5 officers; both available get assigned
             assert inc.status == IncidentStatus.DISPATCHED.value
 
     def test_dispatch_nearest(self):
@@ -124,3 +124,92 @@ class TestSeedDemo:
             stats = store.get_stats()
             assert stats["total_officers"] == 10
             assert stats["total_incidents"] == 5
+
+
+class TestDispatchEngineEnhanced:
+    """Phase 2: multi-tier dispatch, escalation, accept."""
+
+    def test_multi_tier_dispatch(self):
+        """Tier 1 (role match) preferred over Tier 3 (any available)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = IncidentStore(tmpdir)
+            store.register_officer("Medic", "medical", "+91-1", 28.614, 77.209)
+            store.register_officer("Bystander", "police", "+91-2", 28.614, 77.209)
+            inc = store.create_incident("medical", 3, 28.614, 77.209, "X", "Heart attack")
+            engine = DispatchEngine(store)
+            assigned = engine.dispatch(inc)
+            assert len(assigned) >= 1
+            # Medical officer should be assigned first (tier 1)
+            assert assigned[0].role == "medical"
+
+    def test_no_officers_creates_escalation_timeline(self):
+        """No officers in radius → timeline entry + escalation scheduled."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = IncidentStore(tmpdir)
+            # Officer very far away (> 10km radius for level 2)
+            store.register_officer("Far", "police", "+91-1", 29.0, 78.0)
+            inc = store.create_incident("crime", 3, 28.614, 77.209, "X", "Fight")
+            engine = DispatchEngine(store)
+            assigned = engine.dispatch(inc)
+            assert len(assigned) == 0
+            # Check timeline has no_response entry
+            statuses = [ev["status"] for ev in inc.timeline]
+            assert "no_response" in statuses
+            # Escalation should be scheduled
+            with engine._lock:
+                assert inc.id in engine._pending_escalations
+
+    def test_accept_incident(self):
+        """Officer accepts → status changes to en_route."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = IncidentStore(tmpdir)
+            off = store.register_officer("Raj", "police", "+91-1", 28.614, 77.209)
+            inc = store.create_incident("crime", 3, 28.614, 77.209, "X", "Fight")
+            engine = DispatchEngine(store)
+            engine.dispatch(inc)
+            result = engine.accept_incident(off.id, inc.id)
+            assert result is not None
+            assert result.status == IncidentStatus.DISPATCHED.value
+            updated_off = store.get_officer(off.id)
+            assert updated_off.status == OfficerStatus.EN_ROUTE.value
+
+    def test_dispatch_callback(self):
+        """on_dispatch callback fires when officers are assigned."""
+        dispatched = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = IncidentStore(tmpdir)
+            store.register_officer("Raj", "police", "+91-1", 28.614, 77.209)
+            inc = store.create_incident("crime", 3, 28.614, 77.209, "X", "Fight")
+            engine = DispatchEngine(store, on_dispatch=lambda i, o: dispatched.append((i, o)))
+            engine.dispatch(inc)
+            assert len(dispatched) == 1
+            assert dispatched[0][0]["id"] == inc.id
+
+    def test_escalation_status(self):
+        """get_escalation_status returns correct info."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = IncidentStore(tmpdir)
+            store.register_officer("Far", "police", "+91-1", 29.0, 78.0)
+            inc = store.create_incident("crime", 3, 28.614, 77.209, "X", "Fight")
+            engine = DispatchEngine(store)
+            engine.dispatch(inc)
+            status = engine.get_escalation_status(inc.id)
+            assert status is not None
+            assert status["incident_id"] == inc.id
+            assert status["assigned_count"] == 0
+            assert len(status["active_escalations"]) > 0
+
+    def test_multi_tier_specialty_match(self):
+        """Tier 2 (specialty match) used when no role-match officer available."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = IncidentStore(tmpdir)
+            # Officer with rescue specialty (not medical role)
+            store.register_officer("Rescuer", "rescue", "+91-1", 28.614, 77.209,
+                                   specialty=["medical"])
+            store.register_officer("Unrelated", "cyber", "+91-2", 28.614, 77.209)
+            inc = store.create_incident("medical", 3, 28.614, 77.209, "X", "Heart attack")
+            engine = DispatchEngine(store)
+            assigned = engine.dispatch(inc)
+            # Should pick Rescuer (specialty match) over Unrelated
+            assert len(assigned) >= 1
+            assert assigned[0].name == "Rescuer"
