@@ -1,84 +1,91 @@
-# ============================================
-# BHAIRAV — Docker Compose
-# ============================================
+# BHAIRAV City Safety System — Production Stack
 # Usage:
-#   docker compose up              — run server (default)
-#   docker compose --profile dev up — with hot-reload + dashboard
-#   docker compose --profile full up — server + postgres + redis
-#   docker compose up --scale worker=3 — multi-worker
+#   docker compose up -d          # start everything
+#   docker compose logs -f        # watch logs
+#   docker compose down           # stop
+
+version: "3.9"
 
 services:
-  # --- Core server ---
-  server:
-    build: .
+  # ── Main BHAIRAV Server ──────────────────────────────────────────
+  bhairav:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bhairav-server
     ports:
       - "8000:8000"
+    volumes:
+      - bhairav-data:/app/output
+      - bhairav-config:/app/config
     environment:
       - BHAIRAV_SECRET=${BHAIRAV_SECRET:-change-me-in-production}
       - BHAIRAV_CORS_ORIGINS=${BHAIRAV_CORS_ORIGINS:-}
-      - BHAIRAV_DB_URL=${BHAIRAV_DB_URL:-}
-    volumes:
-      - evidence_data:/app/data/evidence
-      - trajectory_data:/app/data/trajectories
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      - BHAIRAV_LOG_LEVEL=${BHAIRAV_LOG_LEVEL:-INFO}
+      - BHAIRAV_RETENTION_DAYS=${BHAIRAV_RETENTION_DAYS:-30}
+      - BHAIRAV_SMS_GATEWAY=${BHAIRAV_SMS_GATEWAY:-}
+      - BHAIRAV_TWILIO_SID=${BHAIRAV_TWILIO_SID:-}
+      - BHAIRAV_TWILIO_TOKEN=${BHAIRAV_TWILIO_TOKEN:-}
     restart: unless-stopped
-
-  # --- Worker (pipeline processing) ---
-  worker:
-    build: .
-    command: python -m bhairav.serve --no-server --source rtsp://camera01
-    environment:
-      - BHAIRAV_SECRET=${BHAIRAV_SECRET:-change-me-in-production}
-      - BHAIRAV_DB_URL=${BHAIRAV_DB_URL:-}
-    volumes:
-      - evidence_data:/app/data/evidence
-    profiles:
-      - scale
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     deploy:
-      replicas: 1
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
 
-  # --- Dev profile: hot-reload + dashboard ---
-  dev:
-    build: .
-    command: python -m bhairav.serve --host 0.0.0.0 --port 8000
-    ports:
-      - "8000:8000"
-    environment:
-      - BHAIRAV_SECRET=dev-secret
-    volumes:
-      - ./src:/app/src
-      - ./dashboard:/app/dashboard
-      - evidence_data:/app/data/evidence
-    profiles:
-      - dev
-
-  # --- Postgres (optional, for production) ---
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: bhairav
-      POSTGRES_USER: bhairav
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bhairav}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    profiles:
-      - full
-
-  # --- Redis (optional, for caching/queues) ---
+  # ── Redis for caching + rate limiting ────────────────────────────
   redis:
     image: redis:7-alpine
+    container_name: bhairav-redis
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ── Prometheus metrics exporter (optional) ───────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: bhairav-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    restart: unless-stopped
     profiles:
-      - full
+      - monitoring
+
+  # ── Grafana dashboards (optional) ───────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: bhairav-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+    profiles:
+      - monitoring
 
 volumes:
-  evidence_data:
-  trajectory_data:
-  pgdata:
+  bhairav-data:
+  bhairav-config:
+  redis-data:
+  prometheus-data:
+  grafana-data:

@@ -1,44 +1,35 @@
-# ============================================
-# BHAIRAV — Multi-stage Docker Build
-# ============================================
+# BHAIRAV — City Safety Surveillance System
+# Multi-stage build for production deployment
+FROM python:3.12-slim AS base
 
-# --- Stage 1: Base Python ---
-FROM python:3.11-slim AS base
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+# System deps for OpenCV, numpy
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev \
+    curl && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# System deps for OpenCV + YOLO
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender1 \
-    && rm -rf /var/lib/apt/lists/*
+# Install Python deps
+COPY pyproject.toml .
+RUN pip install --no-cache-dir -e ".[ml]" 2>/dev/null || \
+    pip install --no-cache-dir fastapi uvicorn numpy opencv-python-headless \
+    Pillow ultralytics pyyaml
 
-# --- Stage 2: Dependencies ---
-FROM base AS deps
-
-COPY requirements.txt requirements-ml.txt ./
-RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir -r requirements-ml.txt
-
-# --- Stage 3: Application ---
-FROM deps AS app
-
+# Copy source
 COPY src/ src/
 COPY scripts/ scripts/
 COPY dashboard/ dashboard/
-COPY models/ models/
-
-# Download YOLO model at build time
-RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+COPY output/ output/ 2>/dev/null || true
 
 # Non-root user
-RUN useradd -m -r bhairav && chown -R bhairav:bhairav /app
+RUN useradd -m bhairav && chown -R bhairav:bhairav /app
 USER bhairav
 
 EXPOSE 8000
 
-# Default: run the server
-CMD ["python", "-m", "bhairav.serve", "--host", "0.0.0.0", "--port", "8000"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["python", "-m", "uvicorn", "scripts.serve:app", "--host", "0.0.0.0", "--port", "8000"]
