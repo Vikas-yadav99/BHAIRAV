@@ -111,6 +111,7 @@ class IncidentStore:
         self._inc_file = self.path / "incidents.jsonl"
         self._off_file = self.path / "officers.jsonl"
         self._incidents = {}
+        self._lock = __import__("threading").Lock()
         self._officers = {}
         self._load()
 
@@ -155,8 +156,10 @@ class IncidentStore:
                     continue
 
     def _save_incidents(self):
+        with self._lock:
+            snapshot = dict(self._incidents)
         with self._inc_file.open("w", encoding="utf-8") as f:
-            for inc in self._incidents.values():
+            for inc in snapshot.values():
                 f.write(json.dumps({
                     "id": inc.id, "category": inc.category,
                     "emergency_level": inc.emergency_level,
@@ -172,8 +175,10 @@ class IncidentStore:
                 }, ensure_ascii=False) + "\n")
 
     def _save_officers(self):
+        with self._lock:
+            snapshot = dict(self._officers)
         with self._off_file.open("w", encoding="utf-8") as f:
-            for off in self._officers.values():
+            for off in snapshot.values():
                 f.write(json.dumps({
                     "id": off.id, "name": off.name, "role": off.role,
                     "phone": off.phone, "status": off.status,
@@ -196,7 +201,8 @@ class IncidentStore:
             timeline=[{"status": "reported", "time": now,
                        "note": f"Reported by {reporter_name or chr(39)+chr(39)} via {source}"}],
         )
-        self._incidents[inc.id] = inc
+        with self._lock:
+            self._incidents[inc.id] = inc
         self._save_incidents()
         return inc
 
@@ -217,10 +223,11 @@ class IncidentStore:
         if not inc:
             return None
         now = time.time()
-        for k, v in kw.items():
-            if hasattr(inc, k):
-                setattr(inc, k, v)
-        inc.updated_at = now
+        with self._lock:
+            for k, v in kw.items():
+                if hasattr(inc, k):
+                    setattr(inc, k, v)
+            inc.updated_at = now
         if "status" in kw:
             inc.timeline.append({"status": kw["status"], "time": now, "note": kw.get("note", "")})
         self._save_incidents()
@@ -230,8 +237,9 @@ class IncidentStore:
         inc = self._incidents.get(iid)
         if not inc:
             return None
-        inc.crowd_reports += 1
-        inc.updated_at = time.time()
+        with self._lock:
+            inc.crowd_reports += 1
+            inc.updated_at = time.time()
         if inc.crowd_reports >= 2 and inc.status == IncidentStatus.REPORTED.value:
             inc.status = IncidentStatus.VERIFIED.value
             inc.timeline.append({"status": "verified", "time": time.time(),
@@ -256,7 +264,8 @@ class IncidentStore:
             location_lat=lat, location_lng=lng,
             specialty=specialty or [], last_seen=time.time(),
         )
-        self._officers[off.id] = off
+        with self._lock:
+            self._officers[off.id] = off
         self._save_officers()
         return off
 
@@ -273,10 +282,11 @@ class IncidentStore:
         off = self._officers.get(oid)
         if not off:
             return None
-        for k, v in kw.items():
-            if hasattr(off, k):
-                setattr(off, k, v)
-        off.last_seen = time.time()
+        with self._lock:
+            for k, v in kw.items():
+                if hasattr(off, k):
+                    setattr(off, k, v)
+            off.last_seen = time.time()
         self._save_officers()
         return off
 
@@ -598,21 +608,63 @@ def seed_demo_data(store):
 
 # ── FastAPI Routes ───────────────────────────────────────────────
 
-def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchEngine):
-    """Add incident API routes to the FastAPI app."""
+def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchEngine,
+                           token_manager=None, public_rate_limiter=None,
+                           officer_rate_limiter=None):
+    """Add incident API routes to the FastAPI app.
+
+    Security features:
+    - Rate limiting on public endpoints (reports, crowd reports)
+    - Input validation (lat/lng bounds, category, emergency level, phone)
+    - Secure HMAC-signed officer tokens (not hardcoded key)
+    - Rate limiting on officer authentication endpoints
+    """
+    from ._security import (
+        ValidationError, validate_lat, validate_lng, validate_category,
+        validate_emergency_level, validate_phone, validate_string,
+        safe_float, safe_int, validate_proof_photos,
+        OfficerTokenManager, EndpointRateLimiter,
+    )
+
+    # Initialize security components if not provided
+    token_mgr = token_manager or OfficerTokenManager()
+    pub_limiter = public_rate_limiter or EndpointRateLimiter(limit=30, window_sec=60.0)
+    off_limiter = officer_rate_limiter or EndpointRateLimiter(limit=10, window_sec=60.0)
+
+    def _get_client_ip(request):
+        return request.client.host if request and request.client else "unknown"
+
+    def _check_rate_limit(request, limiter, endpoint_name="public"):
+        ip = _get_client_ip(request)
+        if not limiter.allow(f"{endpoint_name}:{ip}"):
+            retry = limiter.retry_after(f"{endpoint_name}:{ip}")
+            return {"error": f"Rate limit exceeded. Try again in {retry:.0f}s.",
+                    "retry_after": round(retry, 1)}, 429
+        return None
 
     @app.post("/api/incidents")
-    def report_incident(body: dict = {}):
-        """Public endpoint: report a new incident."""
-        cat = body.get("category", "other")
-        level = int(body.get("emergency_level", 1))
-        lat = float(body.get("lat", 0))
-        lng = float(body.get("lng", 0))
-        name = body.get("location_name", "Unknown")
-        desc = body.get("description", "")
-        phone = body.get("reporter_phone", "")
-        rname = body.get("reporter_name", "")
-        source = body.get("source", "public")
+    def report_incident(request, body: dict = {}):
+        """Public endpoint: report a new incident (rate-limited)."""
+        # Rate limit
+        rate_resp = _check_rate_limit(request, pub_limiter, "report")
+        if rate_resp:
+            return rate_resp
+
+        # Validate inputs
+        try:
+            cat = validate_category(body.get("category", "other"))
+            level = validate_emergency_level(body.get("emergency_level", 1))
+            lat = validate_lat(safe_float(body.get("lat"), field_name="lat"))
+            lng = validate_lng(safe_float(body.get("lng"), field_name="lng"))
+            name = validate_string(body.get("location_name", "Unknown"), "location_name", 200)
+            desc = validate_string(body.get("description", ""), "description", 2000)
+            phone = body.get("reporter_phone", "")
+            if phone:
+                phone = validate_phone(phone)
+            rname = validate_string(body.get("reporter_name", ""), "reporter_name", 100)
+            source = validate_string(body.get("source", "public"), "source", 20)
+        except ValidationError as e:
+            return {"error": str(e), "field": e.field}, 400
 
         inc = store.create_incident(cat, level, lat, lng, name, desc,
                                      reporter_phone=phone, reporter_name=rname, source=source)
@@ -729,9 +781,16 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
 
     # ── Officer App Endpoints ─────────────────────────────────────────
     @app.post("/api/officer/login")
-    def officer_login(body: dict = {}):
-        """Officer login by phone number or ID. No password needed —
-        officers authenticate by possession of a registered device."""
+    def officer_login(request, body: dict = {}):
+        """Officer login by phone number or ID.
+
+        Rate-limited (10 attempts/IP/min). Token is HMAC-signed with server secret.
+        """
+        # Rate limit
+        rate_resp = _check_rate_limit(request, off_limiter, "officer_login")
+        if rate_resp:
+            return rate_resp
+
         phone = str(body.get("phone", "")).strip()
         officer_id = str(body.get("officer_id", "")).strip()
         if not phone and not officer_id:
@@ -747,12 +806,8 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
                     break
         if not off:
             return {"error": "Officer not found. Register first."}, 404
-        # Generate a simple token (officer_id + timestamp)
-        import hmac as _hmac
-        import hashlib
-        payload = f"{off.id}:{int(time.time())}"
-        sig = _hmac.new(b"bhairav-officer", payload.encode(), hashlib.sha256).hexdigest()[:16]
-        token = f"{payload}:{sig}"
+        # Generate a secure HMAC-signed token
+        token = token_mgr.issue_token(off.id)
         return {
             "token": token,
             "officer": off.to_dict(),
@@ -760,14 +815,19 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
 
     @app.post("/api/officer/heartbeat")
     def officer_heartbeat(body: dict = {}, store_ref=store):
-        """Officer sends GPS location heartbeat."""
+        """Officer sends GPS location heartbeat (validates token + lat/lng)."""
         token = str(body.get("token", ""))
-        lat = float(body.get("lat", 0))
-        lng = float(body.get("lng", 0))
-        officer_id = token.split(":")[0] if ":" in token else ""
+        officer_id = token_mgr.validate_token(token)
+        if not officer_id:
+            return {"error": "Invalid or expired token"}, 401
+        try:
+            lat = validate_lat(safe_float(body.get("lat"), field_name="lat"))
+            lng = validate_lng(safe_float(body.get("lng"), field_name="lng"))
+        except ValidationError as e:
+            return {"error": str(e), "field": e.field}, 400
         off = store_ref.get_officer(officer_id)
         if not off:
-            return {"error": "Invalid token"}, 401
+            return {"error": "Officer not found"}, 404
         store_ref.update_officer(officer_id, location_lat=lat, location_lng=lng)
         # Return any new incidents assigned to this officer
         assigned = [i for i in store_ref.list_incidents(status="dispatched")
@@ -780,11 +840,13 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
 
     @app.get("/api/officer/my-incidents")
     def officer_my_incidents(token: str = ""):
-        """Get incidents assigned to this officer."""
-        officer_id = token.split(":")[0] if ":" in token else ""
+        """Get incidents assigned to this officer (validates token)."""
+        officer_id = token_mgr.validate_token(token)
+        if not officer_id:
+            return {"error": "Invalid or expired token"}, 401
         off = store.get_officer(officer_id)
         if not off:
-            return {"error": "Invalid token"}, 401
+            return {"error": "Officer not found"}, 404
         # All incidents this officer is involved in
         all_inc = store.list_incidents()
         my_inc = [i for i in all_inc if officer_id in i.assigned_officers]
@@ -792,15 +854,17 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
 
     @app.post("/api/officer/respond")
     def officer_respond(body: dict = {}):
-        """Officer responds to an incident (accept, en-route, on-scene, resolved)."""
+        """Officer responds to an incident (validates token + input)."""
         token = str(body.get("token", ""))
-        incident_id = str(body.get("incident_id", ""))
-        action = str(body.get("action", ""))  # accept, en_route, on_scene, resolved
-        note = str(body.get("note", ""))
-        officer_id = token.split(":")[0] if ":" in token else ""
+        officer_id = token_mgr.validate_token(token)
+        if not officer_id:
+            return {"error": "Invalid or expired token"}, 401
+        incident_id = validate_string(body.get("incident_id", ""), "incident_id", 50, required=True)
+        action = str(body.get("action", "")).strip()
+        note = validate_string(body.get("note", ""), "note", 1000)
         off = store.get_officer(officer_id)
         if not off:
-            return {"error": "Invalid token"}, 401
+            return {"error": "Officer not found"}, 404
         inc = store.get_incident(incident_id)
         if not inc:
             return {"error": "Incident not found"}, 404
@@ -828,14 +892,26 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
 
     @app.post("/api/officer/register")
     def register_officer(body: dict = {}):
-        """Register a new officer (admin endpoint for onboarding)."""
-        name = str(body.get("name", "")).strip()
-        role = str(body.get("role", "police")).strip()
-        phone = str(body.get("phone", "")).strip()
-        lat = float(body.get("lat", 28.6139))
-        lng = float(body.get("lng", 77.2090))
-        specialty = body.get("specialty", [])
-        if not name:
-            return {"error": "name is required"}, 400
+        """Register a new officer (admin endpoint for onboarding, requires auth)."""
+        # Requires admin token in body
+        admin_token = str(body.get("admin_token", ""))
+        admin_id = token_mgr.validate_token(admin_token) if admin_token else None
+        if not admin_id:
+            return {"error": "Valid admin_token required to register officers"}, 403
+
+        try:
+            name = validate_string(body.get("name", ""), "name", 100, required=True)
+            role = validate_string(body.get("role", "police"), "role", 20)
+            phone = body.get("phone", "")
+            if phone:
+                phone = validate_phone(phone)
+            lat = validate_lat(safe_float(body.get("lat", 28.6139), field_name="lat"))
+            lng = validate_lng(safe_float(body.get("lng", 77.2090), field_name="lng"))
+            specialty = body.get("specialty", [])
+            if not isinstance(specialty, list):
+                specialty = []
+        except ValidationError as e:
+            return {"error": str(e), "field": e.field}, 400
+
         off = store.register_officer(name, role, phone, lat, lng, specialty)
         return {"officer": off.to_dict(), "message": f"Officer {name} registered"}

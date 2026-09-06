@@ -116,7 +116,7 @@ class PhoneVerifier:
         if self.sms_gateway:
             self.sms_gateway.send(phone, f"Your BHAIRAV verification code: {otp}")
         else:
-            log.info("OTP for %s: %s (no gateway)", phone, otp)
+            log.info("OTP sent to %s (gateway stub, OTP not logged for security)", phone)
 
         return {
             "phone": phone,
@@ -324,12 +324,23 @@ class IVRSystem:
         },
     }
 
+    SESSION_TTL_SEC = 300  # 5 minutes
+
     def __init__(self):
         self._calls: dict[str, dict] = {}  # call_id -> state
         self._stats = {"calls_received": 0, "incidents_created": 0}
 
     def start_call(self, caller_phone: str) -> dict:
-        """Start a new IVR call session."""
+        """Start a new IVR call session (cleans up expired sessions first)."""
+        # Clean up expired sessions to prevent memory leak
+        import time as _time
+        expired = [cid for cid, s in self._calls.items()
+                   if _time.time() - s.get("started_at", 0) > self.SESSION_TTL_SEC]
+        for cid in expired:
+            del self._calls[cid]
+        if expired:
+            log.info("Cleaned up %d expired IVR sessions", len(expired))
+
         call_id = uuid.uuid4().hex[:12]
         self._calls[call_id] = {
             "caller_phone": caller_phone,
@@ -355,6 +366,11 @@ class IVRSystem:
         call = self._calls.get(call_id)
         if not call or call["status"] != "active":
             return {"error": "Invalid or ended call"}
+        # Check session expiry
+        import time as _time
+        if _time.time() - call.get("started_at", 0) > self.SESSION_TTL_SEC:
+            del self._calls[call_id]
+            return {"error": "Call session expired. Please call again."}
 
         step = call["step"]
 

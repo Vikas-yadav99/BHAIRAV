@@ -1190,11 +1190,23 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
             audit.append(claims["sub"], "analytics_disconnect", "predictive analytics feed")
 
     # ---- federation ingest (Phase 13.3) ----
+    _federation_secret = os.environ.get("BHAIRAV_FEDERATION_SECRET", "")
+
     @app.post("/api/federation/ingest")
     async def federation_ingest(request: Request):
-        """Accept federation messages from peer BHAIRAV servers."""
+        """Accept federation messages from peer BHAIRAV servers.
+
+        Requires X-Federation-Secret header matching BHAIRAV_FEDERATION_SECRET.
+        Without the env var set, federation is disabled (all requests rejected).
+        """
+        if not _federation_secret:
+            raise HTTPException(status_code=503,
+                                detail="federation not configured (set BHAIRAV_FEDERATION_SECRET)")
+        fed_header = request.headers.get("X-Federation-Secret", "")
+        if not fed_header or not hmac.compare_digest(fed_header, _federation_secret):
+            audit.append("?", "federation_rejected", "bad/missing secret")
+            raise HTTPException(status_code=401, detail="unauthorized federation request")
         site = request.headers.get("X-Federation-Site", "unknown")
-        # Simple shared-secret check (production should use HMAC)
         body = await request.json()
         if not isinstance(body, list):
             return {"error": "expected array"}
@@ -1611,6 +1623,15 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         return {"zone_predictions": zone_predictions,
                 "total_tracked": len(persons)}
 
+    # ---- Security helpers for new endpoints ----
+    from .._security import OfficerTokenManager, EndpointRateLimiter, WSConnectionLimiter
+    _officer_token_mgr = OfficerTokenManager(
+        secret=os.environ.get("BHAIRAV_OFFICER_SECRET", None)
+    )
+    _public_rate_limiter = EndpointRateLimiter(limit=30, window_sec=60.0)
+    _officer_rate_limiter = EndpointRateLimiter(limit=10, window_sec=60.0)
+    _ws_limiter = WSConnectionLimiter(per_ip=5, global_max=256)
+
     # ---- City Safety Incidents (Phase 1) ----------------------------------
     from ..incidents import IncidentStore, DispatchEngine as _DispatchEngine
     from ..incidents import create_incident_routes, seed_demo_data
@@ -1626,7 +1647,10 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         log.info("Seeded %d officers and demo incidents",
                  len(inc_store.list_officers()))
 
-    create_incident_routes(app, inc_store, inc_dispatch)
+    create_incident_routes(app, inc_store, inc_dispatch,
+                           token_manager=_officer_token_mgr,
+                           public_rate_limiter=_public_rate_limiter,
+                           officer_rate_limiter=_officer_rate_limiter)
 
     # Camera-to-Incident Bridge: auto-creates incidents from camera alerts
     from ..camera_bridge import CameraIncidentBridge
@@ -1684,8 +1708,11 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
 
     # ---- API Routes: Phone Gateway --------------------------------------
     @app.post("/api/phone/sms")
-    def receive_sms(body: dict = {}):
-        """Receive SMS incident report."""
+    def receive_sms(request, body: dict = {}):
+        """Receive SMS incident report (rate-limited)."""
+        client_ip = request.client.host if request and request.client else "unknown"
+        if not _public_rate_limiter.allow(f"sms:{client_ip}"):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
         phone = body.get("phone", "")
         message = body.get("message", "")
         if not phone or not message:
@@ -1704,8 +1731,11 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         return {"report": report, "incident_result": result}
 
     @app.post("/api/phone/whatsapp")
-    def receive_whatsapp(body: dict = {}):
-        """Receive WhatsApp incident report."""
+    def receive_whatsapp(request, body: dict = {}):
+        """Receive WhatsApp incident report (rate-limited)."""
+        client_ip = request.client.host if request and request.client else "unknown"
+        if not _public_rate_limiter.allow(f"wa:{client_ip}"):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
         phone = body.get("phone", "")
         message = body.get("message", "")
         if not phone or not message:
@@ -1724,8 +1754,11 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         return {"report": report, "incident_result": result}
 
     @app.post("/api/phone/ivr/start")
-    def ivr_start(body: dict = {}):
-        """Start IVR call session."""
+    def ivr_start(request, body: dict = {}):
+        """Start IVR call session (rate-limited)."""
+        client_ip = request.client.host if request and request.client else "unknown"
+        if not _public_rate_limiter.allow(f"ivr:{client_ip}"):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
         phone = body.get("phone", "")
         if not phone:
             return {"error": "phone required"}, 400
@@ -1824,8 +1857,11 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         return city_safety.stats()
 
     @app.post("/api/safety/report")
-    def safety_report(body: dict = {}):
-        """Report incident through city safety engine (with dedup)."""
+    def safety_report(request, body: dict = {}):
+        """Report incident through city safety engine (rate-limited, with dedup)."""
+        client_ip = request.client.host if request and request.client else "unknown"
+        if not _public_rate_limiter.allow(f"safety:{client_ip}"):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
         return city_safety.report_incident(
             category=body.get("category", "other"),
             lat=float(body.get("lat", 0)),

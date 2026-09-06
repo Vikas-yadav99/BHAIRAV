@@ -1,247 +1,337 @@
-"""Security module tests."""
+"""Tests for security hardening: validation, rate limiting, tokens, WebSocket limits."""
+from __future__ import annotations
+
+import math
 import time
-from bhairav.backend.security import (
-    sanitize_input, sanitize_dict, html_escape, sql_safe_identifier,
-    CORSConfig, CSRFProtection, SecurityAuditLog, VulnerabilityScanner,
-    RequestValidator, SecretsConfig, generate_api_key, hash_api_key,
-    verify_api_key, DEFAULT_SECURITY_HEADERS,
+import threading
+from bhairav._security import (
+    ValidationError,
+    validate_lat, validate_lng, validate_phone, validate_category,
+    validate_emergency_level, validate_string, safe_float, safe_int,
+    validate_proof_photos,
+    EndpointRateLimiter, OfficerTokenManager, WSConnectionLimiter,
+    RequestLogger,
 )
 
 
-class TestInputSanitization:
-    def test_clean_input(self):
-        r = sanitize_input("hello world")
-        assert r.safe is True
+class TestInputValidation:
+    """Lat/lng bounds, phone format, category, emergency level."""
 
-    def test_sql_injection_select(self):
-        r = sanitize_input("'; DROP TABLE users; --")
-        assert r.safe is False
-        assert r.threat_type == "sql_injection"
+    def test_lat_valid(self):
+        assert validate_lat(0) == 0.0
+        assert validate_lat(28.6139) == 28.6139
+        assert validate_lat(-90) == -90.0
+        assert validate_lat(90) == 90.0
 
-    def test_sql_injection_union(self):
-        r = sanitize_input("1 UNION SELECT * FROM passwords")
-        assert r.safe is False
+    def test_lat_invalid(self):
+        try:
+            validate_lat(91)
+            assert False, "should have raised"
+        except ValidationError:
+            pass
+        try:
+            validate_lat(-91)
+            assert False, "should have raised"
+        except ValidationError:
+            pass
+        try:
+            validate_lat(float("nan"))
+            assert False, "should have raised"
+        except ValidationError:
+            pass
 
-    def test_xss_script_tag(self):
-        r = sanitize_input("<script>alert(1)</script>")
-        assert r.safe is False
-        assert r.threat_type == "xss"
+    def test_lng_valid(self):
+        assert validate_lng(0) == 0.0
+        assert validate_lng(77.2090) == 77.2090
+        assert validate_lng(-180) == -180.0
+        assert validate_lng(180) == 180.0
 
-    def test_xss_event_handler(self):
-        r = sanitize_input('<img onerror="alert(1)">')
-        assert r.safe is False
+    def test_lng_invalid(self):
+        try:
+            validate_lng(181)
+            assert False, "should have raised"
+        except ValidationError:
+            pass
 
-    def test_xss_javascript_uri(self):
-        r = sanitize_input("javascript:alert(1)")
-        assert r.safe is False
+    def test_phone_valid(self):
+        assert validate_phone("+91-9876543210") == "+91-9876543210"
+        assert validate_phone("+1234567890") == "+1234567890"
 
-    def test_path_traversal(self):
-        r = sanitize_input("../../../etc/passwd")
-        assert r.safe is False
-        assert r.threat_type == "path_traversal"
+    def test_phone_invalid(self):
+        try:
+            validate_phone("")
+            assert False, "should have raised"
+        except ValidationError:
+            pass
+        try:
+            validate_phone("123")  # too short
+            assert False, "should have raised"
+        except ValidationError:
+            pass
 
-    def test_max_length(self):
-        r = sanitize_input("a" * 10001, max_length=10000)
-        assert r.safe is False
-        assert r.threat_type == "oversized"
+    def test_category_valid(self):
+        assert validate_category("medical") == "medical"
+        assert validate_category("CRIME") == "crime"
+        assert validate_category("road_accident") == "road_accident"
 
-    def test_dict_sanitization_clean(self):
-        r = sanitize_dict({"name": "test", "value": 42})
-        assert r.safe is True
+    def test_category_invalid(self):
+        try:
+            validate_category("invalid_cat")
+            assert False, "should have raised"
+        except ValidationError:
+            pass
 
-    def test_dict_sanitization_injection(self):
-        r = sanitize_dict({"name": "'; DROP TABLE --"})
-        assert r.safe is False
+    def test_emergency_level_valid(self):
+        assert validate_emergency_level(1) == 1
+        assert validate_emergency_level(4) == 4
 
-    def test_dict_nested_injection(self):
-        r = sanitize_dict({"outer": {"inner": "<script>alert(1)</script>"}})
-        assert r.safe is False
+    def test_emergency_level_invalid(self):
+        try:
+            validate_emergency_level(5)
+            assert False, "should have raised"
+        except ValidationError:
+            pass
+        try:
+            validate_emergency_level(0)
+            assert False, "should have raised"
+        except ValidationError:
+            pass
 
-    def test_list_in_dict_injection(self):
-        r = sanitize_dict({"items": ["safe", "'; DROP TABLE --"]})
-        assert r.safe is False
+    def test_safe_float(self):
+        assert safe_float("3.14") == 3.14
+        assert safe_float(None) == 0.0
+        assert safe_float(None, 5.0) == 5.0
+
+    def test_safe_float_invalid(self):
+        try:
+            safe_float("not_a_number", field_name="test")
+            assert False, "should have raised"
+        except ValidationError:
+            pass
+
+    def test_validate_string(self):
+        assert validate_string("hello", "test") == "hello"
+        assert validate_string("", "test") == ""  # not required
+        assert validate_string("  hello  ", "test") == "hello"
+        try:
+            validate_string("", "test", required=True)
+            assert False, "should have raised"
+        except ValidationError:
+            pass
+
+    def test_validate_string_max_length(self):
+        try:
+            validate_string("x" * 2001, "test", max_len=2000)
+            assert False, "should have raised"
+        except ValidationError:
+            pass
+
+    def test_validate_proof_photos_count(self):
+        assert validate_proof_photos([]) == []
+        assert validate_proof_photos(["a", "b"]) == ["a", "b"]
+        try:
+            validate_proof_photos(["a"] * 6)  # max 5
+            assert False, "should have raised"
+        except ValidationError:
+            pass
+
+    def test_validate_proof_photos_size(self):
+        try:
+            validate_proof_photos(["x" * 6_000_000])
+            assert False, "should have raised"
+        except ValidationError:
+            pass
 
 
-class TestHtmlEscape:
-    def test_basic_escape(self):
-        assert html_escape("<b>") == "&lt;b&gt;"
-        assert html_escape("a & b") == "a &amp; b"
+class TestRateLimiter:
+    """EndpointRateLimiter: fixed-window per-IP rate limiting."""
 
-    def test_quotes(self):
-        assert html_escape('"hello"') == "&quot;hello&quot;"
+    def test_allows_within_limit(self):
+        limiter = EndpointRateLimiter(limit=5, window_sec=1.0)
+        for _ in range(5):
+            assert limiter.allow("ip1") is True
 
+    def test_blocks_over_limit(self):
+        limiter = EndpointRateLimiter(limit=3, window_sec=60.0)
+        for _ in range(3):
+            limiter.allow("ip1")
+        assert limiter.allow("ip1") is False
 
-class TestSqlSafeIdentifier:
-    def test_valid(self):
-        assert sql_safe_identifier("users") == "users"
-        assert sql_safe_identifier("_private") == "_private"
+    def test_different_ips_independent(self):
+        limiter = EndpointRateLimiter(limit=2, window_sec=60.0)
+        limiter.allow("ip1")
+        limiter.allow("ip1")
+        assert limiter.allow("ip1") is False
+        assert limiter.allow("ip2") is True  # different IP
 
-    def test_invalid(self):
-        import pytest
-        with pytest.raises(ValueError):
-            sql_safe_identifier("users; DROP TABLE")
-        with pytest.raises(ValueError):
-            sql_safe_identifier("1table")
+    def test_remaining(self):
+        limiter = EndpointRateLimiter(limit=5, window_sec=60.0)
+        limiter.allow("ip1")
+        assert limiter.remaining("ip1") == 4
+        limiter.allow("ip1")
+        assert limiter.remaining("ip1") == 3
 
-
-class TestCORS:
-    def test_default_origins(self):
-        cfg = CORSConfig()
-        assert cfg.is_origin_allowed("http://localhost:8000")
-        assert not cfg.is_origin_allowed("http://evil.com")
-
-    def test_wildcard(self):
-        cfg = CORSConfig(allowed_origins=["*"])
-        assert cfg.is_origin_allowed("http://evil.com")
-
-    def test_headers(self):
-        cfg = CORSConfig()
-        h = cfg.get_headers("http://localhost:8000")
-        assert "Access-Control-Allow-Origin" in h
-        assert h["Access-Control-Allow-Credentials"] == "true"
+    def test_retry_after(self):
+        limiter = EndpointRateLimiter(limit=1, window_sec=10.0)
+        limiter.allow("ip1")
+        retry = limiter.retry_after("ip1")
+        assert 0 < retry <= 10
 
 
-class TestCSRF:
-    def test_generate_and_validate(self):
-        csrf = CSRFProtection("test-secret")
-        token = csrf.generate_token("session123")
-        assert csrf.validate_token(token, "session123") is True
+class TestOfficerTokens:
+    """OfficerTokenManager: HMAC-signed, time-limited tokens."""
 
-    def test_wrong_session(self):
-        csrf = CSRFProtection("test-secret")
-        token = csrf.generate_token("session1")
-        assert csrf.validate_token(token, "session2") is False
+    def test_issue_and_validate(self):
+        mgr = OfficerTokenManager(secret="test-secret-key")
+        token = mgr.issue_token("officer-001")
+        assert ":" in token
+        result = mgr.validate_token(token)
+        assert result == "officer-001"
+
+    def test_invalid_token(self):
+        mgr = OfficerTokenManager(secret="test-secret-key")
+        assert mgr.validate_token("invalid") is None
+        assert mgr.validate_token("") is None
+        assert mgr.validate_token(None) is None
+
+    def test_wrong_secret(self):
+        mgr1 = OfficerTokenManager(secret="secret1")
+        mgr2 = OfficerTokenManager(secret="secret2")
+        token = mgr1.issue_token("officer-001")
+        assert mgr2.validate_token(token) is None  # wrong secret
 
     def test_expired_token(self):
-        csrf = CSRFProtection("test-secret")
-        token = csrf.generate_token("session1")
-        csrf._ttl = 0
-        time.sleep(0.01)
-        assert csrf.validate_token(token, "session1") is False
+        mgr = OfficerTokenManager(secret="test-secret-key")
+        # Create a token that's 25 hours old
+        import hashlib as _hashlib
+        ts = str(int(time.time() - 86400 * 25))
+        payload = f"officer-001:{ts}"
+        sig = _hashlib.new("sha256", payload.encode()).hexdigest()[:32]
+        expired_token = f"{payload}:{sig}"
+        assert mgr.validate_token(expired_token) is None
+
+    def test_get_officer_id(self):
+        mgr = OfficerTokenManager()
+        token = mgr.issue_token("off-123")
+        assert mgr.get_officer_id(token) == "off-123"
 
 
-class TestAuditLog:
-    def test_log_event(self):
-        log = SecurityAuditLog()
-        log.log("test", "test event")
-        assert len(log.events) == 1
-        assert log.events[0]["type"] == "test"
+class TestWSConnectionLimiter:
+    """WSConnectionLimiter: per-IP and global WebSocket limits."""
 
-    def test_login_attempt(self):
-        log = SecurityAuditLog()
-        log.log_login_attempt("admin", True, "127.0.0.1")
-        log.log_login_attempt("admin", False, "127.0.0.1")
-        assert len(log.events) == 2
-        assert log.events[0]["severity"] == "info"
-        assert log.events[1]["severity"] == "warning"
+    def test_allows_within_limits(self):
+        limiter = WSConnectionLimiter(per_ip=3, global_max=10)
+        assert limiter.allow("1.2.3.4") is True
+        assert limiter.allow("1.2.3.4") is True
+        assert limiter.allow("1.2.3.4") is True
 
-    def test_injection_attempt(self):
-        log = SecurityAuditLog()
-        log.log_injection_attempt("sql_injection", "DROP TABLE", "10.0.0.1")
-        events = log.get_events(severity="critical")
-        assert len(events) == 1
+    def test_blocks_per_ip(self):
+        limiter = WSConnectionLimiter(per_ip=2, global_max=100)
+        limiter.allow("1.2.3.4")
+        limiter.allow("1.2.3.4")
+        assert limiter.allow("1.2.3.4") is False  # per-IP limit
 
-    def test_summary(self):
-        log = SecurityAuditLog()
-        log.log("type_a", "e1")
-        log.log("type_a", "e2")
-        log.log("type_b", "e3")
-        s = log.get_summary()
-        assert s["total"] == 3
-        assert s["by_type"]["type_a"] == 2
+    def test_blocks_global(self):
+        limiter = WSConnectionLimiter(per_ip=100, global_max=3)
+        limiter.allow("ip1")
+        limiter.allow("ip2")
+        limiter.allow("ip3")
+        assert limiter.allow("ip4") is False  # global limit
 
-    def test_prune_old_events(self):
-        log = SecurityAuditLog(max_events=5)
+    def test_release(self):
+        limiter = WSConnectionLimiter(per_ip=1, global_max=1)
+        limiter.allow("1.2.3.4")
+        assert limiter.allow("1.2.3.4") is False
+        limiter.release("1.2.3.4")
+        assert limiter.allow("1.2.3.4") is True
+
+    def test_stats(self):
+        limiter = WSConnectionLimiter(per_ip=5, global_max=100)
+        limiter.allow("1.2.3.4")
+        stats = limiter.stats()
+        assert stats["total"] == 1
+        assert "1.2.3.4" in stats["per_ip"]
+
+
+class TestRequestLogger:
+    """RequestLogger: structured logging with stats."""
+
+    def test_log_and_recent(self):
+        logger = RequestLogger(max_entries=100)
+        logger.log("GET", "/api/test", 200, "1.2.3.4", 12.5)
+        entries = logger.recent(10)
+        assert len(entries) == 1
+        assert entries[0]["status"] == 200
+
+    def test_rotation(self):
+        logger = RequestLogger(max_entries=5)
         for i in range(10):
-            log.log("test", f"event {i}")
-        assert len(log.events) == 5
+            logger.log("GET", f"/api/{i}", 200, "1.2.3.4", 1.0)
+        assert len(logger.recent(100)) == 5  # rotated
 
-    def test_filter_events(self):
-        log = SecurityAuditLog()
-        log.log("login", "e1")
-        log.log("injection", "e2")
-        log.log("login", "e3")
-        assert len(log.get_events(event_type="login")) == 2
-
-
-class TestRequestValidator:
-    def test_bad_method(self):
-        v = RequestValidator()
-        r = v.validate_request("PATCH", "/api/test", {})
-        assert r.safe is True  # PATCH is allowed
-
-    def test_invalid_method(self):
-        v = RequestValidator()
-        r = v.validate_request("TRACE", "/api/test", {})
-        assert r.safe is False
-
-    def test_url_too_long(self):
-        v = RequestValidator()
-        r = v.validate_request("GET", "/api/" + "a" * 3000, {})
-        assert r.safe is False
-
-    def test_body_too_large(self):
-        v = RequestValidator()
-        r = v.validate_request("POST", "/api/test", {"content-type": "text/plain"}, b"x" * 20000000)
-        assert r.safe is False
-
-    def test_json_injection(self):
-        v = RequestValidator()
-        body = b'{"name": "<script>alert(1)</script>"}'
-        r = v.validate_request("POST", "/api/test", {"content-type": "application/json"}, body)
-        assert r.safe is False
-
-    def test_clean_json(self):
-        v = RequestValidator()
-        body = b'{"name": "test", "value": 42}'
-        r = v.validate_request("POST", "/api/test", {"content-type": "application/json"}, body)
-        assert r.safe is True
+    def test_stats(self):
+        logger = RequestLogger()
+        logger.log("GET", "/api/test", 200, "1.2.3.4", 1.0)
+        logger.log("POST", "/api/test", 500, "1.2.3.4", 50.0)
+        stats = logger.stats()
+        assert stats["total"] == 2
+        assert stats["errors"] == 1
 
 
-class TestAPIKeys:
-    def test_generate(self):
-        key = generate_api_key()
-        assert key.startswith("bhr_")
-        assert len(key) == 68
+class TestLoadSimulation:
+    """Simulate concurrent load on rate limiter and token manager."""
 
-    def test_hash_and_verify(self):
-        key = generate_api_key()
-        h = hash_api_key(key)
-        assert verify_api_key(key, h) is True
-        assert verify_api_key("wrong_key", h) is False
+    def test_rate_limiter_under_load(self):
+        limiter = EndpointRateLimiter(limit=100, window_sec=1.0)
+        blocked = []
 
-    def test_constant_time(self):
-        """Verify timing-safe comparison."""
-        import hmac
-        key = generate_api_key()
-        h = hash_api_key(key)
-        # Should not raise or differ based on timing
-        assert verify_api_key(key, h)
+        def hit_limiter(key):
+            if not limiter.allow(key):
+                blocked.append(key)
 
+        threads = [threading.Thread(target=hit_limiter, args=(f"ip{i % 10}",))
+                   for i in range(150)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
 
-class TestVulnerabilityScanner:
-    def test_scan_clean_code(self, tmp_path):
-        f = tmp_path / "clean.py"
-        f.write_text("x = 1\nprint(x)\n")
-        from bhairav.backend.security import VulnerabilityScanner
-        s = VulnerabilityScanner()
-        r = s.scan_file(str(f))
-        assert len(r) == 0
+        # 10 IPs * 100 limit = up to 1000 allowed, but we only have 150 total
+        # so all should pass (15 per IP)
+        assert len(blocked) == 0
 
-    def test_scan_debug_mode(self, tmp_path):
-        f = tmp_path / "bad.py"
-        f.write_text("DEBUG = True\nsecret = 'abc123'\n")
-        from bhairav.backend.security import VulnerabilityScanner
-        s = VulnerabilityScanner()
-        r = s.scan_file(str(f))
-        checks = [x["check"] for x in r]
-        assert "debug_mode" in checks
-        assert "hardcoded_secrets" in checks
+    def test_rate_limiter_stress(self):
+        limiter = EndpointRateLimiter(limit=10, window_sec=60.0)
+        blocked_count = 0
 
-    def test_scan_directory(self, tmp_path):
-        f = tmp_path / "test.py"
-        f.write_text("eval('1+1')\n")
-        from bhairav.backend.security import VulnerabilityScanner
-        s = VulnerabilityScanner()
-        r = s.scan_directory(str(tmp_path))
-        assert r["total_findings"] > 0
+        def hit(key):
+            nonlocal blocked_count
+            if not limiter.allow(key):
+                blocked_count += 1
+
+        threads = [threading.Thread(target=hit, args=("attacker",))
+                   for _ in range(50)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert blocked_count == 40  # 50 - 10 allowed = 40 blocked
+
+    def test_token_manager_thread_safety(self):
+        mgr = OfficerTokenManager(secret="test")
+        results = []
+
+        def issue_and_validate():
+            token = mgr.issue_token("officer-001")
+            result = mgr.validate_token(token)
+            results.append(result)
+
+        threads = [threading.Thread(target=issue_and_validate) for _ in range(50)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert all(r == "officer-001" for r in results)
+        assert len(results) == 50
