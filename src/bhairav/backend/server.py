@@ -1729,11 +1729,20 @@ Real-time AI-powered surveillance, incident reporting, and emergency dispatch sy
     )
     inc_dispatch = incident_dispatch or _DispatchEngine(inc_store)
 
-    # Seed demo officers and incidents on first run
+    # Seed with real city data (Indore) or fall back to Delhi demo
     if not inc_store.list_officers():
-        seed_demo_data(inc_store)
-        log.info("Seeded %d officers and demo incidents",
-                 len(inc_store.list_officers()))
+        try:
+            from ..city_loader import load_city
+            city_stats = load_city(inc_store, inc_dispatch, city_name="indore")
+            log.info("Loaded Indore city data: %d officers, %d incidents, %d cameras",
+                     city_stats.get("officers", 0),
+                     city_stats.get("incidents", 0),
+                     city_stats.get("cameras", 0))
+        except Exception as e:
+            log.warning("City loader failed (%s), falling back to demo data", e)
+            seed_demo_data(inc_store)
+            log.info("Seeded %d officers and demo incidents",
+                     len(inc_store.list_officers()))
 
     create_incident_routes(app, inc_store, inc_dispatch,
                            token_manager=_officer_token_mgr,
@@ -1980,5 +1989,25 @@ Real-time AI-powered surveillance, incident reporting, and emergency dispatch sy
             body.get("notes", ""),
             body.get("photos", []),
         )
+
+    # ---- City Config API ------------------------------------------------
+    @app.get("/api/city")
+    def get_city_config():
+        """Get current city configuration (cameras, zones, police stations)."""
+        from ..city_loader import get_city_config as _get_config
+        config = _get_config("indore")
+        if not config:
+            return {"error": "No city configured"}
+        # Return safe subset (no raw OSM data)
+        return {
+            "city": config["city"],
+            "state": config["state"],
+            "country": config["country"],
+            "center": config["center"],
+            "bounds": config["bounds"],
+            "cameras": config["cameras"],
+            "zones": config["zones"],
+            "dispatch_center": config["dispatch_center"],
+        }
 
     return app
