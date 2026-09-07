@@ -562,6 +562,11 @@ Real-time AI-powered surveillance, incident reporting, and emergency dispatch sy
             from fastapi.responses import RedirectResponse
             return RedirectResponse(url="/dashboard/officer.html")
 
+        @app.get("/indore")
+        def indore_redirect():
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="/dashboard/indore.html")
+
         @app.get("/report")
         def report_redirect():
             from fastapi.responses import RedirectResponse

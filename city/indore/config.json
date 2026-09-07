@@ -1,0 +1,435 @@
+{
+  "city": "Indore",
+  "state": "Madhya Pradesh",
+  "country": "India",
+  "bounds": {
+    "min_lat": 22.3321,
+    "max_lat": 23.0892,
+    "min_lon": 75.4231,
+    "max_lon": 76.2473
+  },
+  "center": {
+    "lat": 22.7107,
+    "lon": 75.8352
+  },
+  "timezone": "Asia/Kolkata",
+  "population": 3200000,
+  "area_sq_km": 530,
+  "cameras": [
+    {
+      "id": "IND-CAM-001",
+      "name": "Vijay Nagar Square",
+      "lat": 22.7516,
+      "lon": 75.8952,
+      "zone": "vijay_nagar"
+    },
+    {
+      "id": "IND-CAM-002",
+      "name": "Palasia Square",
+      "lat": 22.7251,
+      "lon": 75.8878,
+      "zone": "palasia"
+    },
+    {
+      "id": "IND-CAM-003",
+      "name": "Sarafa Bazaar",
+      "lat": 22.7179,
+      "lon": 75.8519,
+      "zone": "old_city"
+    },
+    {
+      "id": "IND-CAM-004",
+      "name": "Rajwada Palace",
+      "lat": 22.7176,
+      "lon": 75.855,
+      "zone": "old_city"
+    },
+    {
+      "id": "IND-CAM-005",
+      "name": "MR 10 Bridge",
+      "lat": 22.705,
+      "lon": 75.86,
+      "zone": "south"
+    },
+    {
+      "id": "IND-CAM-006",
+      "name": "AB Road Junction",
+      "lat": 22.72,
+      "lon": 75.875,
+      "zone": "central"
+    },
+    {
+      "id": "IND-CAM-007",
+      "name": "Khajrana Road",
+      "lat": 22.7359,
+      "lon": 75.9145,
+      "zone": "khajrana"
+    },
+    {
+      "id": "IND-CAM-008",
+      "name": "Bhanwarkuan Square",
+      "lat": 22.708,
+      "lon": 75.855,
+      "zone": "central"
+    },
+    {
+      "id": "IND-CAM-009",
+      "name": "Mhow Naka",
+      "lat": 22.69,
+      "lon": 75.83,
+      "zone": "south"
+    },
+    {
+      "id": "IND-CAM-010",
+      "name": "Airport Road",
+      "lat": 22.723,
+      "lon": 75.801,
+      "zone": "west"
+    }
+  ],
+  "zones": {
+    "old_city": {
+      "name": "Old City (Rajwada)",
+      "center": [
+        22.7176,
+        75.855
+      ],
+      "radius_km": 2.0,
+      "priority": "high"
+    },
+    "vijay_nagar": {
+      "name": "Vijay Nagar",
+      "center": [
+        22.7516,
+        75.8952
+      ],
+      "radius_km": 3.0,
+      "priority": "high"
+    },
+    "palasia": {
+      "name": "Palasia",
+      "center": [
+        22.7251,
+        75.8878
+      ],
+      "radius_km": 2.5,
+      "priority": "high"
+    },
+    "central": {
+      "name": "Central Indore",
+      "center": [
+        22.715,
+        75.865
+      ],
+      "radius_km": 3.0,
+      "priority": "high"
+    },
+    "khajrana": {
+      "name": "Khajrana",
+      "center": [
+        22.7359,
+        75.9145
+      ],
+      "radius_km": 2.0,
+      "priority": "medium"
+    },
+    "south": {
+      "name": "South Indore (Mhow)",
+      "center": [
+        22.69,
+        75.83
+      ],
+      "radius_km": 4.0,
+      "priority": "medium"
+    },
+    "west": {
+      "name": "West (Airport)",
+      "center": [
+        22.723,
+        75.801
+      ],
+      "radius_km": 3.0,
+      "priority": "low"
+    }
+  },
+  "police_stations": [
+    {
+      "name": "Vijay Nagar Police Station",
+      "lat": 22.7515954,
+      "lon": 75.8951965,
+      "type": "police"
+    },
+    {
+      "name": "Palasiya Police Station",
+      "lat": 22.7250681,
+      "lon": 75.8877551,
+      "type": "police"
+    },
+    {
+      "name": "chhatri bagh police station",
+      "lat": 22.7100183,
+      "lon": 75.8464913,
+      "type": "police"
+    },
+    {
+      "name": "annapurna police stand",
+      "lat": 22.6959031,
+      "lon": 75.8416431,
+      "type": "police"
+    },
+    {
+      "name": "Unknown PS",
+      "lat": 22.5973616,
+      "lon": 75.6051108,
+      "type": "police"
+    },
+    {
+      "name": "Police thana khajrana",
+      "lat": 22.7358525,
+      "lon": 75.9145323,
+      "type": "police"
+    },
+    {
+      "name": "Police station khajrana",
+      "lat": 22.73595,
+      "lon": 75.9145268,
+      "type": "police"
+    },
+    {
+      "name": "Police Station - Tejaji Nagar",
+      "lat": 22.6390418,
+      "lon": 75.8879383,
+      "type": "police"
+    },
+    {
+      "name": "Bhanwarkuan Police Station",
+      "lat": 22.6847671,
+      "lon": 75.8726313,
+      "type": "police"
+    },
+    {
+      "name": "Lasaudia Police Station",
+      "lat": 22.7853734,
+      "lon": 75.9056795,
+      "type": "police"
+    },
+    {
+      "name": "Unknown PS",
+      "lat": 22.6921153,
+      "lon": 75.868114,
+      "type": "police"
+    },
+    {
+      "name": "Unknown PS",
+      "lat": 22.7236008,
+      "lon": 75.88468,
+      "type": "police"
+    },
+    {
+      "name": "Unknown PS",
+      "lat": 22.7210223,
+      "lon": 75.8416914,
+      "type": "police"
+    },
+    {
+      "name": "Unknown PS",
+      "lat": 22.7290625,
+      "lon": 75.8073745,
+      "type": "police"
+    }
+  ],
+  "hospitals": [
+    {
+      "name": "Greater Kailash Hospital",
+      "lat": 22.7250815,
+      "lon": 75.8904652,
+      "type": "hospital"
+    },
+    {
+      "name": "Shubham Hospital",
+      "lat": 22.6910407,
+      "lon": 75.8263785,
+      "type": "hospital"
+    },
+    {
+      "name": "Curewell hospital janjeerwala square",
+      "lat": 22.726664,
+      "lon": 75.8819643,
+      "type": "hospital"
+    },
+    {
+      "name": "Yoga Amrutam",
+      "lat": 22.7579241,
+      "lon": 75.9020955,
+      "type": "hospital"
+    },
+    {
+      "name": "Care Ayurveda Clinic",
+      "lat": 22.7537292,
+      "lon": 75.8877182,
+      "type": "hospital"
+    },
+    {
+      "name": "Ayurveda Amratam",
+      "lat": 22.7571686,
+      "lon": 75.9026775,
+      "type": "hospital"
+    },
+    {
+      "name": "AKAMI Ayurveda",
+      "lat": 22.7575457,
+      "lon": 75.9025743,
+      "type": "hospital"
+    },
+    {
+      "name": "Ashadeep Hospital",
+      "lat": 22.7637651,
+      "lon": 75.8914441,
+      "type": "hospital"
+    },
+    {
+      "name": "Banadas Homeopathic Clinic",
+      "lat": 22.7533421,
+      "lon": 75.8878805,
+      "type": "hospital"
+    },
+    {
+      "name": "Arogyam Homeopathic Clinic- Dr. Rajesh Bhordiya & ",
+      "lat": 22.7537168,
+      "lon": 75.8858655,
+      "type": "hospital"
+    },
+    {
+      "name": "Rhythmic Power Yoga",
+      "lat": 22.7558514,
+      "lon": 75.88723,
+      "type": "hospital"
+    },
+    {
+      "name": "Kanak Hospital",
+      "lat": 22.7650473,
+      "lon": 75.8871227,
+      "type": "hospital"
+    },
+    {
+      "name": "Care Ayurveda Clinic",
+      "lat": 22.7537243,
+      "lon": 75.8877236,
+      "type": "hospital"
+    },
+    {
+      "name": "Mother Care Nursing Home",
+      "lat": 22.7585123,
+      "lon": 75.8859229,
+      "type": "hospital"
+    },
+    {
+      "name": "Indore Institute Of Medical Scinces",
+      "lat": 22.7611952,
+      "lon": 75.8961812,
+      "type": "hospital"
+    },
+    {
+      "name": "Aashirwad Homeo Clinic",
+      "lat": 22.7526862,
+      "lon": 75.8895031,
+      "type": "hospital"
+    },
+    {
+      "name": "Aarogya Jivan Homeopathy Clinic",
+      "lat": 22.7525643,
+      "lon": 75.8905925,
+      "type": "hospital"
+    },
+    {
+      "name": "Bhandari Hospital and Research Center",
+      "lat": 22.7527999,
+      "lon": 75.8889798,
+      "type": "hospital"
+    },
+    {
+      "name": "Aura Health Care",
+      "lat": 22.7586481,
+      "lon": 75.9075395,
+      "type": "hospital"
+    },
+    {
+      "name": "The Homeopathy",
+      "lat": 22.7567963,
+      "lon": 75.9095487,
+      "type": "hospital"
+    },
+    {
+      "name": "Jyoti Hospital",
+      "lat": 22.7529278,
+      "lon": 75.888716,
+      "type": "hospital"
+    },
+    {
+      "name": "Sankalp Eye Hospital",
+      "lat": 22.7436804,
+      "lon": 75.8982834,
+      "type": "hospital"
+    },
+    {
+      "name": "E.S.I.C. Hospital",
+      "lat": 22.7484062,
+      "lon": 75.8784109,
+      "type": "hospital"
+    },
+    {
+      "name": "Al Jufin Unani",
+      "lat": 22.7304692,
+      "lon": 75.894641,
+      "type": "hospital"
+    },
+    {
+      "name": "YOGA",
+      "lat": 22.7337715,
+      "lon": 75.8924636,
+      "type": "hospital"
+    },
+    {
+      "name": "Pratyush Homeo Pharmacy & Clinic",
+      "lat": 22.7309528,
+      "lon": 75.899705,
+      "type": "hospital"
+    },
+    {
+      "name": "Samarpit Hospital",
+      "lat": 22.7280707,
+      "lon": 75.8941448,
+      "type": "hospital"
+    },
+    {
+      "name": "Ayurvedic Medicines",
+      "lat": 22.7279099,
+      "lon": 75.8942038,
+      "type": "hospital"
+    },
+    {
+      "name": "Rx Aushadhi",
+      "lat": 22.7281561,
+      "lon": 75.8942775,
+      "type": "hospital"
+    },
+    {
+      "name": "Narmade Ayruvedam Panchkaram Kendra",
+      "lat": 22.7294524,
+      "lon": 75.8966553,
+      "type": "hospital"
+    }
+  ],
+  "dispatch_center": {
+    "name": "BHAIRAV Control Room - Indore",
+    "lat": 22.715,
+    "lon": 75.865,
+    "address": "District Police Office, Indore"
+  },
+  "emergency_numbers": {
+    "police": "100",
+    "ambulance": "108",
+    "fire": "101",
+    "bhairav": "+91-731-XXXXXXX"
+  }
+}

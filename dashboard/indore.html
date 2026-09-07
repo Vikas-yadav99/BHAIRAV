@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BHAIRAV - Indore City Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0b1120;color:#e2e8f0}
+#map{width:100%;height:100vh}
+.info-box{position:absolute;top:10px;right:10px;z-index:1000;background:rgba(15,23,42,0.95);border:1px solid #1e293b;border-radius:12px;padding:16px;width:280px;max-height:80vh;overflow-y:auto}
+.info-box h2{font-size:16px;color:#22d3ee;margin-bottom:8px}
+.info-box .stat{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1e293b;font-size:13px}
+.info-box .stat .val{color:#22d3ee;font-weight:600}
+.legend{position:absolute;bottom:20px;right:10px;z-index:1000;background:rgba(15,23,42,0.95);border:1px solid #1e293b;border-radius:8px;padding:12px}
+.legend div{margin:4px 0;font-size:12px}
+.legend span{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.sidebar{position:absolute;top:10px;left:10px;z-index:1000;background:rgba(15,23,42,0.95);border:1px solid #1e293b;border-radius:12px;padding:12px;width:220px}
+.sidebar h3{font-size:13px;color:#94a3b8;margin-bottom:8px}
+.zone-btn{display:block;width:100%;padding:6px 10px;margin:2px 0;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e2e8f0;cursor:pointer;font-size:12px;text-align:left}
+.zone-btn:hover{background:#334155}
+.zone-btn.high{border-left:3px solid #ef4444}
+.zone-btn.medium{border-left:3px solid #eab308}
+.zone-btn.low{border-left:3px solid #22c55e}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="info-box">
+  <h2>BHAIRAV - Indore</h2>
+  <div class="stat"><span>City</span><span class="val">Indore, MP</span></div>
+  <div class="stat"><span>Population</span><span class="val">3.2M</span></div>
+  <div class="stat"><span>Area</span><span class="val">530 km²</span></div>
+  <div class="stat"><span>Cameras</span><span class="val">10</span></div>
+  <div class="stat"><span>Police Stations</span><span class="val">14</span></div>
+  <div class="stat"><span>Hospitals</span><span class="val">20+</span></div>
+  <div class="stat"><span>Zones</span><span class="val">7</span></div>
+  <div style="margin-top:12px;font-size:11px;color:#64748b">
+    Real data from OpenStreetMap<br>
+    Camera positions: planned placements<br>
+    First pilot city for BHAIRAV
+  </div>
+</div>
+
+<div class="legend">
+  <div><span style="background:#ef4444"></span>Camera (Planned)</div>
+  <div><span style="background:#3b82f6"></span>Police Station</div>
+  <div><span style="background:#22c55e"></span>Hospital</div>
+  <div><span style="background:#a855f7;border-radius:2px"></span>Zone Boundary</div>
+</div>
+
+<div class="sidebar">
+  <h3>City Zones</h3>
+  <button class="zone-btn high" onclick="flyToZone('old_city')">Old City (Rajwada)</button><button class="zone-btn high" onclick="flyToZone('vijay_nagar')">Vijay Nagar</button><button class="zone-btn high" onclick="flyToZone('palasia')">Palasia</button><button class="zone-btn high" onclick="flyToZone('central')">Central Indore</button><button class="zone-btn medium" onclick="flyToZone('khajrana')">Khajrana</button><button class="zone-btn medium" onclick="flyToZone('south')">South Indore (Mhow)</button><button class="zone-btn low" onclick="flyToZone('west')">West (Airport)</button>
+</div>
+
+<script>
+const cameras = [{"id": "IND-CAM-001", "name": "Vijay Nagar Square", "lat": 22.7516, "lon": 75.8952, "zone": "vijay_nagar"}, {"id": "IND-CAM-002", "name": "Palasia Square", "lat": 22.7251, "lon": 75.8878, "zone": "palasia"}, {"id": "IND-CAM-003", "name": "Sarafa Bazaar", "lat": 22.7179, "lon": 75.8519, "zone": "old_city"}, {"id": "IND-CAM-004", "name": "Rajwada Palace", "lat": 22.7176, "lon": 75.855, "zone": "old_city"}, {"id": "IND-CAM-005", "name": "MR 10 Bridge", "lat": 22.705, "lon": 75.86, "zone": "south"}, {"id": "IND-CAM-006", "name": "AB Road Junction", "lat": 22.72, "lon": 75.875, "zone": "central"}, {"id": "IND-CAM-007", "name": "Khajrana Road", "lat": 22.7359, "lon": 75.9145, "zone": "khajrana"}, {"id": "IND-CAM-008", "name": "Bhanwarkuan Square", "lat": 22.708, "lon": 75.855, "zone": "central"}, {"id": "IND-CAM-009", "name": "Mhow Naka", "lat": 22.69, "lon": 75.83, "zone": "south"}, {"id": "IND-CAM-010", "name": "Airport Road", "lat": 22.723, "lon": 75.801, "zone": "west"}];
+const police = [{"name": "Vijay Nagar Police Station", "lat": 22.7515954, "lon": 75.8951965, "type": "police"}, {"name": "Palasiya Police Station", "lat": 22.7250681, "lon": 75.8877551, "type": "police"}, {"name": "chhatri bagh police station", "lat": 22.7100183, "lon": 75.8464913, "type": "police"}, {"name": "annapurna police stand", "lat": 22.6959031, "lon": 75.8416431, "type": "police"}, {"name": "Unknown PS", "lat": 22.5973616, "lon": 75.6051108, "type": "police"}, {"name": "Police thana khajrana", "lat": 22.7358525, "lon": 75.9145323, "type": "police"}, {"name": "Police station khajrana", "lat": 22.73595, "lon": 75.9145268, "type": "police"}, {"name": "Police Station - Tejaji Nagar", "lat": 22.6390418, "lon": 75.8879383, "type": "police"}, {"name": "Bhanwarkuan Police Station", "lat": 22.6847671, "lon": 75.8726313, "type": "police"}, {"name": "Lasaudia Police Station", "lat": 22.7853734, "lon": 75.9056795, "type": "police"}, {"name": "Unknown PS", "lat": 22.6921153, "lon": 75.868114, "type": "police"}, {"name": "Unknown PS", "lat": 22.7236008, "lon": 75.88468, "type": "police"}, {"name": "Unknown PS", "lat": 22.7210223, "lon": 75.8416914, "type": "police"}, {"name": "Unknown PS", "lat": 22.7290625, "lon": 75.8073745, "type": "police"}];
+const hospitals = [{"name": "Greater Kailash Hospital", "lat": 22.7250815, "lon": 75.8904652, "type": "hospital"}, {"name": "Shubham Hospital", "lat": 22.6910407, "lon": 75.8263785, "type": "hospital"}, {"name": "Curewell hospital janjeerwala square", "lat": 22.726664, "lon": 75.8819643, "type": "hospital"}, {"name": "Yoga Amrutam", "lat": 22.7579241, "lon": 75.9020955, "type": "hospital"}, {"name": "Care Ayurveda Clinic", "lat": 22.7537292, "lon": 75.8877182, "type": "hospital"}, {"name": "Ayurveda Amratam", "lat": 22.7571686, "lon": 75.9026775, "type": "hospital"}, {"name": "AKAMI Ayurveda", "lat": 22.7575457, "lon": 75.9025743, "type": "hospital"}, {"name": "Ashadeep Hospital", "lat": 22.7637651, "lon": 75.8914441, "type": "hospital"}, {"name": "Banadas Homeopathic Clinic", "lat": 22.7533421, "lon": 75.8878805, "type": "hospital"}, {"name": "Arogyam Homeopathic Clinic- Dr. Rajesh Bhordiya & ", "lat": 22.7537168, "lon": 75.8858655, "type": "hospital"}, {"name": "Rhythmic Power Yoga", "lat": 22.7558514, "lon": 75.88723, "type": "hospital"}, {"name": "Kanak Hospital", "lat": 22.7650473, "lon": 75.8871227, "type": "hospital"}, {"name": "Care Ayurveda Clinic", "lat": 22.7537243, "lon": 75.8877236, "type": "hospital"}, {"name": "Mother Care Nursing Home", "lat": 22.7585123, "lon": 75.8859229, "type": "hospital"}, {"name": "Indore Institute Of Medical Scinces", "lat": 22.7611952, "lon": 75.8961812, "type": "hospital"}, {"name": "Aashirwad Homeo Clinic", "lat": 22.7526862, "lon": 75.8895031, "type": "hospital"}, {"name": "Aarogya Jivan Homeopathy Clinic", "lat": 22.7525643, "lon": 75.8905925, "type": "hospital"}, {"name": "Bhandari Hospital and Research Center", "lat": 22.7527999, "lon": 75.8889798, "type": "hospital"}, {"name": "Aura Health Care", "lat": 22.7586481, "lon": 75.9075395, "type": "hospital"}, {"name": "The Homeopathy", "lat": 22.7567963, "lon": 75.9095487, "type": "hospital"}];
+const zones = {"old_city": {"name": "Old City (Rajwada)", "center": [22.7176, 75.855], "radius_km": 2.0, "priority": "high"}, "vijay_nagar": {"name": "Vijay Nagar", "center": [22.7516, 75.8952], "radius_km": 3.0, "priority": "high"}, "palasia": {"name": "Palasia", "center": [22.7251, 75.8878], "radius_km": 2.5, "priority": "high"}, "central": {"name": "Central Indore", "center": [22.715, 75.865], "radius_km": 3.0, "priority": "high"}, "khajrana": {"name": "Khajrana", "center": [22.7359, 75.9145], "radius_km": 2.0, "priority": "medium"}, "south": {"name": "South Indore (Mhow)", "center": [22.69, 75.83], "radius_km": 4.0, "priority": "medium"}, "west": {"name": "West (Airport)", "center": [22.723, 75.801], "radius_km": 3.0, "priority": "low"}};
+const center = {"lat": 22.7107, "lon": 75.8352};
+
+const map = L.map("map", {
+  center: [center.lat, center.lon],
+  zoom: 12,
+  zoomControl: false
+});
+
+L.control.zoom({position: "bottomleft"}).addTo(map);
+
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "© OpenStreetMap contributors",
+  maxZoom: 18
+}).addTo(map);
+
+// Zone circles
+Object.entries(zones).forEach(([key, z]) => {
+  const color = z.priority === "high" ? "#ef4444" : z.priority === "medium" ? "#eab308" : "#22c55e";
+  L.circle([z.center[0], z.center[1]], {
+    radius: z.radius_km * 1000,
+    color: color,
+    fillColor: color,
+    fillOpacity: 0.05,
+    weight: 1,
+    dashArray: "5,10"
+  }).addTo(map).bindPopup(`<b>${z.name}</b><br>Priority: ${z.priority}<br>Radius: ${z.radius_km}km`);
+});
+
+// Camera markers
+cameras.forEach(cam => {
+  const icon = L.divIcon({
+    html: `<div style="background:#ef4444;width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 8px #ef4444"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
+    className: ""
+  });
+  L.marker([cam.lat, cam.lon], {icon}).addTo(map)
+    .bindPopup(`<b>📹 ${cam.name}</b><br>ID: ${cam.id}<br>Zone: ${cam.zone}`);
+});
+
+// Police markers
+police.forEach(ps => {
+  const icon = L.divIcon({
+    html: `<div style="background:#3b82f6;width:10px;height:10px;border-radius:50%;border:2px solid #fff"></div>`,
+    iconSize: [10, 10],
+    iconAnchor: [5, 5],
+    className: ""
+  });
+  L.marker([ps.lat, ps.lon], {icon}).addTo(map)
+    .bindPopup(`<b>🚔 ${ps.name}</b><br>Police Station`);
+});
+
+// Hospital markers
+hospitals.forEach(h => {
+  const icon = L.divIcon({
+    html: `<div style="background:#22c55e;width:8px;height:8px;border-radius:50%;border:1px solid #fff"></div>`,
+    iconSize: [8, 8],
+    iconAnchor: [4, 4],
+    className: ""
+  });
+  L.marker([h.lat, h.lon], {icon}).addTo(map)
+    .bindPopup(`<b>🏥 ${h.name}</b><br>Hospital`);
+});
+
+function flyToZone(key) {
+  const z = zones[key];
+  if (z) map.flyTo([z.center[0], z.center[1]], 14, {duration: 1});
+}
+
+// Auto-refresh incidents every 10s
+let incidentLayer = L.layerGroup().addTo(map);
+async function loadIncidents() {
+  try {
+    const r = await fetch("/api/safety/dashboard");
+    const d = await r.json();
+    incidentLayer.clearLayers();
+    (d.incidents || d.active_incidents || []).forEach(inc => {
+      const loc = inc.location || {};
+      const lat = loc.lat || inc.lat;
+      const lng = loc.lng || inc.lng;
+      if (!lat || !lng) return;
+      const color = inc.emergency_level >= 4 ? "#ef4444" : inc.emergency_level >= 3 ? "#f97316" : inc.emergency_level >= 2 ? "#eab308" : "#22c55e";
+      L.circleMarker([lat, lng], {
+        radius: 8, fillColor: color, color: "#fff", weight: 2, fillOpacity: 0.8
+      }).addTo(incidentLayer)
+        .bindPopup(`<b>${inc.category}</b><br>Level ${inc.emergency_level}<br>${inc.description || ""}`);
+    });
+  } catch(e) {}
+}
+loadIncidents();
+setInterval(loadIncidents, 10000);
+</script>
+</body>
+</html>
