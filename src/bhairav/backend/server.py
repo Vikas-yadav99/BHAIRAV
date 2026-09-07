@@ -1818,8 +1818,8 @@ Real-time AI-powered surveillance, incident reporting, and emergency dispatch sy
         parsed = report["parsed"]
         result = city_safety.report_incident(
             category=parsed["category"],
-            lat=body.get("lat", 28.6139),
-            lng=body.get("lng", 77.2090),
+            lat=body.get("lat", 22.7107),
+            lng=body.get("lng", 75.8352),
             emergency_level=parsed["emergency_level"],
             description=message,
             reporter_phone=phone,
@@ -1841,8 +1841,8 @@ Real-time AI-powered surveillance, incident reporting, and emergency dispatch sy
         parsed = report["parsed"]
         result = city_safety.report_incident(
             category=parsed["category"],
-            lat=body.get("lat", 28.6139),
-            lng=body.get("lng", 77.2090),
+            lat=body.get("lat", 22.7107),
+            lng=body.get("lng", 75.8352),
             emergency_level=parsed["emergency_level"],
             description=message,
             reporter_phone=phone,
@@ -1871,8 +1871,8 @@ Real-time AI-powered surveillance, incident reporting, and emergency dispatch sy
             inc = result["incident"]
             city_safety.report_incident(
                 category=inc["category"],
-                lat=body.get("lat", 28.6139),
-                lng=body.get("lng", 77.2090),
+                lat=body.get("lat", 22.7107),
+                lng=body.get("lng", 75.8352),
                 emergency_level=inc["emergency_level"],
                 description=inc.get("description", ""),
                 reporter_phone=inc.get("caller_phone", ""),
@@ -1989,6 +1989,18 @@ Real-time AI-powered surveillance, incident reporting, and emergency dispatch sy
             body.get("notes", ""),
             body.get("photos", []),
         )
+
+    # ---- SLA Breach Alerts ------------------------------------------------
+    @app.get("/api/safety/sla-breaches")
+    def get_sla_breaches():
+        """Check for incidents approaching or breaching SLA targets."""
+        return {"breaches": city_safety.check_sla_breaches()}
+
+    # ---- Government Report ------------------------------------------------
+    @app.get("/api/safety/government-report")
+    def get_government_report(days: int = 30):
+        """Generate summary report for government officials."""
+        return city_safety.get_government_report(days)
 
     # ---- City Config API ------------------------------------------------
     @app.get("/api/city")

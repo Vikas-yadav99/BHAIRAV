@@ -12,7 +12,7 @@ def setup():
         store = IncidentStore(tmpdir)
         engine = DispatchEngine(store)
         # Register an officer close to CAM-01 position
-        store.register_officer("Raj", "police", "+91-1", 28.614, 77.209)
+        store.register_officer("Raj", "police", "+91-1", 22.711, 75.835)
         yield store, engine
 
 

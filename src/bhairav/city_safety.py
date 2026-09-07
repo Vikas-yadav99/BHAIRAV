@@ -916,14 +916,14 @@ class CitySafetyEngine:
 
         # Get camera position
         camera_positions = {
-            "CAM-01": (28.6139, 77.2090),
+            "CAM-01": (22.7107, 75.8352),
             "CAM-02": (28.6150, 77.2100),
             "CAM-03": (28.6120, 77.2080),
             "CAM-04": (28.6160, 77.2110),
             "CAM-05": (28.6110, 77.2070),
             "CAM-06": (28.6180, 77.2130),
         }
-        lat, lng = camera_positions.get(camera_id, (28.6139, 77.2090))
+        lat, lng = camera_positions.get(camera_id, (22.7107, 75.8352))
 
         # Use dedup to handle camera + public overlap
         result = self.report_incident(

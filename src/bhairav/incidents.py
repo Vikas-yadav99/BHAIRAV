@@ -578,7 +578,7 @@ def haversine_distance(lat1, lng1, lat2, lng2):
 
 def seed_demo_data(store):
     for name, role, phone, lat, lng, spec in [
-        ("Raj Kumar", "police", "+91-9876543210", 28.6139, 77.2090, ["patrol"]),
+        ("Raj Kumar", "police", "+91-9876543210", 22.7107, 75.8352, ["patrol"]),
         ("Priya Singh", "medical", "+91-9876543211", 28.6150, 77.2100, ["emergency"]),
         ("Amit Verma", "fire", "+91-9876543212", 28.6120, 77.2080, ["hazmat"]),
         ("Sunita Devi", "police", "+91-9876543213", 28.6160, 77.2110, ["investigation"]),
@@ -906,8 +906,8 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
             phone = body.get("phone", "")
             if phone:
                 phone = validate_phone(phone)
-            lat = validate_lat(safe_float(body.get("lat", 28.6139), field_name="lat"))
-            lng = validate_lng(safe_float(body.get("lng", 77.2090), field_name="lng"))
+            lat = validate_lat(safe_float(body.get("lat", 22.7107), field_name="lat"))
+            lng = validate_lng(safe_float(body.get("lng", 75.8352), field_name="lng"))
             specialty = body.get("specialty", [])
             if not isinstance(specialty, list):
                 specialty = []
