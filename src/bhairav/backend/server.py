@@ -437,7 +437,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
     stats = stats or PipelineStats()
     login_limiter = login_limiter or RateLimiter(LOGIN_RATE_LIMIT, LOGIN_RATE_WINDOW_SEC)
 
-    def _reject_large_body(request) -> None:
+    def _reject_large_body(request: Request) -> None:
         cl = request.headers.get("content-length")
         if cl and cl.isdigit() and int(cl) > MAX_JSON_BODY_BYTES:
             raise HTTPException(status_code=413, detail="request body too large")
@@ -445,6 +445,11 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
     from .. import __version__
     app = FastAPI(title="BHAIRAV - Evidence & Live API", version=__version__)
     app.add_middleware(_BodyLimitMiddleware, max_bytes=MAX_JSON_BODY_BYTES)
+
+    # Monitoring: request timing, error rates, status code tracking
+    from .monitoring import MonitoringMiddleware, MetricsCollector, HealthChecker
+    _metrics = MetricsCollector()
+    app.add_middleware(MonitoringMiddleware, metrics=_metrics)
 
     # CORS: configurable allowed origins via BHAIRAV_CORS_ORIGINS env var
     # (comma-separated). Default: same-origin only (no cross-origin).
@@ -565,6 +570,31 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
     def health():
         return {"status": "ok", "service": "bhairav-phase10",
                 "time": round(time.time(), 3), "clients": hub.client_count}
+
+    @app.get("/health/deep")
+    def health_deep():
+        """Deep health check - verifies all subsystems are operational."""
+        checker = HealthChecker(
+            store=store, audit=audit, hub=hub, incidents=incident_store,
+            phone=phone_gw, analytics=city_analytics, safety=city_safety,
+        )
+        result = checker.check()
+        from fastapi.responses import JSONResponse as _JR
+        status_code = 200 if result["status"] == "healthy" else 503
+        return _JR(content=result, status_code=status_code)
+
+    @app.get("/api/metrics")
+    def get_metrics():
+        """Server metrics: request rates, error rates, latency percentiles."""
+        return _metrics.get_summary()
+
+    @app.get("/api/metrics/{method}/{path:path}")
+    def get_endpoint_metrics(method: str, path: str):
+        """Per-endpoint metrics."""
+        result = _metrics.get_endpoint(method.upper(), "/" + path)
+        if not result:
+            raise HTTPException(status_code=404, detail="endpoint not found")
+        return result
 
     @app.get("/ready")
     def ready():
@@ -1708,7 +1738,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
 
     # ---- API Routes: Phone Gateway --------------------------------------
     @app.post("/api/phone/sms")
-    def receive_sms(request, body: dict = {}):
+    def receive_sms(request: Request, body: dict = {}):
         """Receive SMS incident report (rate-limited)."""
         client_ip = request.client.host if request and request.client else "unknown"
         if not _public_rate_limiter.allow(f"sms:{client_ip}"):
@@ -1731,7 +1761,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         return {"report": report, "incident_result": result}
 
     @app.post("/api/phone/whatsapp")
-    def receive_whatsapp(request, body: dict = {}):
+    def receive_whatsapp(request: Request, body: dict = {}):
         """Receive WhatsApp incident report (rate-limited)."""
         client_ip = request.client.host if request and request.client else "unknown"
         if not _public_rate_limiter.allow(f"wa:{client_ip}"):
@@ -1754,7 +1784,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         return {"report": report, "incident_result": result}
 
     @app.post("/api/phone/ivr/start")
-    def ivr_start(request, body: dict = {}):
+    def ivr_start(request: Request, body: dict = {}):
         """Start IVR call session (rate-limited)."""
         client_ip = request.client.host if request and request.client else "unknown"
         if not _public_rate_limiter.allow(f"ivr:{client_ip}"):
@@ -1857,7 +1887,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         return city_safety.stats()
 
     @app.post("/api/safety/report")
-    def safety_report(request, body: dict = {}):
+    def safety_report(request: Request, body: dict = {}):
         """Report incident through city safety engine (rate-limited, with dedup)."""
         client_ip = request.client.host if request and request.client else "unknown"
         if not _public_rate_limiter.allow(f"safety:{client_ip}"):

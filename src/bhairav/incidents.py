@@ -1,5 +1,5 @@
+from fastapi import Request
 """BHAIRAV City Safety - Incident Reporting & Dispatch System."""
-from __future__ import annotations
 
 import json, logging, math, time, uuid
 from collections import Counter
@@ -619,6 +619,7 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
     - Secure HMAC-signed officer tokens (not hardcoded key)
     - Rate limiting on officer authentication endpoints
     """
+    from fastapi import Request
     from ._security import (
         ValidationError, validate_lat, validate_lng, validate_category,
         validate_emergency_level, validate_phone, validate_string,
@@ -643,7 +644,7 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
         return None
 
     @app.post("/api/incidents")
-    def report_incident(request, body: dict = {}):
+    def report_incident(request: Request, body: dict = {}):
         """Public endpoint: report a new incident (rate-limited)."""
         # Rate limit
         rate_resp = _check_rate_limit(request, pub_limiter, "report")
@@ -781,7 +782,7 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
 
     # ── Officer App Endpoints ─────────────────────────────────────────
     @app.post("/api/officer/login")
-    def officer_login(request, body: dict = {}):
+    def officer_login(request: Request, body: dict = {}):
         """Officer login by phone number or ID.
 
         Rate-limited (10 attempts/IP/min). Token is HMAC-signed with server secret.
@@ -814,7 +815,7 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
         }
 
     @app.post("/api/officer/heartbeat")
-    def officer_heartbeat(body: dict = {}, store_ref=store):
+    def officer_heartbeat(body: dict = {}):
         """Officer sends GPS location heartbeat (validates token + lat/lng)."""
         token = str(body.get("token", ""))
         officer_id = token_mgr.validate_token(token)
@@ -825,12 +826,12 @@ def create_incident_routes(app, store: IncidentStore, dispatch_engine: DispatchE
             lng = validate_lng(safe_float(body.get("lng"), field_name="lng"))
         except ValidationError as e:
             return {"error": str(e), "field": e.field}, 400
-        off = store_ref.get_officer(officer_id)
+        off = store.get_officer(officer_id)
         if not off:
             return {"error": "Officer not found"}, 404
-        store_ref.update_officer(officer_id, location_lat=lat, location_lng=lng)
+        store.update_officer(officer_id, location_lat=lat, location_lng=lng)
         # Return any new incidents assigned to this officer
-        assigned = [i for i in store_ref.list_incidents(status="dispatched")
+        assigned = [i for i in store.list_incidents(status="dispatched")
                     if officer_id in i.assigned_officers]
         return {
             "ok": True,
