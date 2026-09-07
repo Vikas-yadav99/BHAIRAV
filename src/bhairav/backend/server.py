@@ -443,7 +443,59 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
             raise HTTPException(status_code=413, detail="request body too large")
 
     from .. import __version__
-    app = FastAPI(title="BHAIRAV - Evidence & Live API", version=__version__)
+    app = FastAPI(
+        title="BHAIRAV - City Safety API",
+        description="""# BHAIRAV City Safety Platform API
+
+## Overview
+Real-time AI-powered surveillance, incident reporting, and emergency dispatch system.
+
+## Authentication
+- **Admin API**: Bearer token from `POST /auth/login`
+- **Officer API**: Token from `POST /api/officer/login` (phone-based)
+- **Public endpoints**: No auth required (rate-limited)
+
+## Rate Limits
+| Endpoint Group | Limit | Window |
+|---|---|---|
+| Public reporting | 30 req | 60s |
+| Officer login | 10 req | 60s |
+| SMS/WhatsApp | 30 req | 60s |
+
+## Real-time Channels
+- `/ws/stream/{camera_id}` — Live video feed
+- `/ws/incidents` — Real-time incident push (operator)
+- `/ws/field` — Field alerts for officers
+
+## Dashboards
+- `/dashboard/` — Main operator dashboard
+- `/officer` — Officer mobile dashboard
+- `/report` — Public incident reporting
+- `/metrics` — Server metrics dashboard
+""",
+        version=__version__,
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_tags=[
+            {"name": "Auth", "description": "User authentication and token management"},
+            {"name": "Evidence", "description": "Evidence storage, retrieval, and export"},
+            {"name": "Monitoring", "description": "Server health, metrics, and deep checks"},
+            {"name": "Incidents", "description": "Incident creation, listing, and management"},
+            {"name": "Dispatch", "description": "Multi-tier dispatch engine with auto-escalation"},
+            {"name": "Officer", "description": "Field officer login, GPS, respond, and status"},
+            {"name": "Phone Gateway", "description": "SMS, WhatsApp, IVR, and OTP reporting"},
+            {"name": "City Safety", "description": "Dedup, GPS tracking, notifications, resolution"},
+            {"name": "Analytics", "description": "Trends, heatmaps, exports (CSV/JSON/GeoJSON)"},
+            {"name": "Camera", "description": "Camera-to-incident bridge and auto-dispatch"},
+            {"name": "Users", "description": "User management and RBAC"},
+            {"name": "Audit", "description": "Audit trail and compliance logging"},
+            {"name": "Search", "description": "Person and vehicle search"},
+            {"name": "Vehicles", "description": "ANPR and vehicle watch lists"},
+            {"name": "Assistant", "description": "AI investigation assistant"},
+            {"name": "Federation", "description": "Multi-site peer federation"},
+            {"name": "WebSocket", "description": "Real-time streaming channels"},
+        ],
+    )
     app.add_middleware(_BodyLimitMiddleware, max_bytes=MAX_JSON_BODY_BYTES)
 
     # Monitoring: request timing, error rates, status code tracking
@@ -514,6 +566,7 @@ def create_app(store: EvidenceStore, audit: AuditLog, secret: str,
         def report_redirect():
             from fastapi.responses import RedirectResponse
             return RedirectResponse(url="/dashboard/report.html")
+
     else:
         @app.get("/")
         def root():

@@ -1,0 +1,18 @@
+{
+  "title": "BHAIRAV City Safety — Server Metrics",
+  "uid": "bhairav-metrics",
+  "tags": ["bhairav", "monitoring", "city-safety"],
+  "refresh": "5s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {"title":"Total Requests","type":"stat","gridPos":{"h":4,"w":4,"x":0,"y":0},"targets":[{"expr":"bhairav_total_requests"}]},
+    {"title":"Error Rate","type":"stat","gridPos":{"h":4,"w":4,"x":4,"y":0},"targets":[{"expr":"bhairav_total_errors/bhairav_total_requests"}]},
+    {"title":"Avg Latency","type":"stat","gridPos":{"h":4,"w":4,"x":8,"y":0},"targets":[{"expr":"bhairav_avg_response_ms"}]},
+    {"title":"Uptime","type":"stat","gridPos":{"h":4,"w":4,"x":12,"y":0},"targets":[{"expr":"bhairav_uptime_seconds"}]},
+    {"title":"Active Endpoints","type":"stat","gridPos":{"h":4,"w":4,"x":16,"y":0},"targets":[{"expr":"count(bhairav_endpoint_requests_total)"}]},
+    {"title":"Request Rate","type":"timeseries","gridPos":{"h":8,"w":12,"x":0,"y":4},"targets":[{"expr":"rate(bhairav_endpoint_requests_total[5m])","legendFormat":"{{method}} {{path}}"}]},
+    {"title":"Status Codes","type":"piechart","gridPos":{"h":8,"w":8,"x":12,"y":4},"targets":[{"expr":"bhairav_status_code_total","legendFormat":"{{code}}"}]},
+    {"title":"Latency P50/P95/P99","type":"timeseries","gridPos":{"h":8,"w":12,"x":0,"y":12},"targets":[{"expr":"histogram_quantile(0.50,rate(bhairav_request_duration_seconds_bucket[5m]))","legendFormat":"P50"},{"expr":"histogram_quantile(0.95,rate(bhairav_request_duration_seconds_bucket[5m]))","legendFormat":"P95"},{"expr":"histogram_quantile(0.99,rate(bhairav_request_duration_seconds_bucket[5m]))","legendFormat":"P99"}]},
+    {"title":"Top Endpoints","type":"bargauge","gridPos":{"h":8,"w":8,"x":12,"y":12},"targets":[{"expr":"topk(10,bhairav_endpoint_requests_total)","legendFormat":"{{method}} {{path}}"}]}
+  ]
+}

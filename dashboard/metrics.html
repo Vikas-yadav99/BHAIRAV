@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BHAIRAV Metrics — Server Dashboard</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0b1120;color:#e2e8f0;min-height:100vh}
+.h{background:#0f172a;border-bottom:1px solid #1e293b;padding:16px 24px;display:flex;align-items:center;gap:12px}
+.h h1{font-size:20px;color:#22d3ee}
+.h .live{width:8px;height:8px;background:#22c55e;border-radius:50%;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;padding:20px 24px}
+.card{background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:20px;text-align:center}
+.card .val{font-size:32px;font-weight:700;color:#22d3ee;margin:8px 0 4px}
+.card .lbl{font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:1px}
+.card.warn .val{color:#eab308}
+.card.err .val{color:#ef4444}
+.card.ok .val{color:#22c55e}
+.section{padding:8px 24px 20px}
+.section h2{font-size:16px;color:#94a3b8;margin-bottom:12px}
+table{width:100%;border-collapse:collapse;background:#0f172a;border:1px solid #1e293b;border-radius:12px;overflow:hidden}
+th{background:#1e293b;color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:1px;padding:10px 12px;text-align:left}
+td{padding:8px 12px;border-top:1px solid #1e293b;font-size:13px;font-family:monospace}
+tr:hover{background:#1e293b40}
+.bar-bg{background:#1e293b;border-radius:4px;height:8px;width:100%}
+.bar{height:100%;border-radius:4px;background:#22d3ee;transition:width .5s}
+.bar.red{background:#ef4444}
+.bar.yellow{background:#eab308}
+.donut{width:160px;height:160px;margin:0 auto}
+</style>
+</head>
+<body>
+<div class="h">
+  <div class="live"></div>
+  <h1>BHAIRAV Server Metrics</h1>
+  <span style="margin-left:auto;color:#64748b;font-size:12px" id="ts">Loading...</span>
+</div>
+<div class="grid" id="cards"></div>
+<div class="section"><h2>Status Code Distribution</h2><canvas id="donutCanvas" class="donut" width="160" height="160"></canvas><div id="donutLegend" style="margin-top:8px"></div></div>
+<div class="section"><h2>Top Endpoints by Request Count</h2><table><thead><tr><th>Method</th><th>Path</th><th>Requests</th><th>Errors</th><th>Error Rate</th><th>Avg (ms)</th><th>Max (ms)</th><th>Load</th></tr></thead><tbody id="epTable"></tbody></table></div>
+<script>
+const API = '/api/metrics';
+const colors = {GET:'#22d3ee',POST:'#a78bfa',DELETE:'#f87171',PUT:'#fbbf24',WS:'#34d399'};
+async function fetch_(){try{const r=await fetch(API);if(!r.ok)return;const d=await r.json();render(d)}catch(e){}}
+function render(d){
+  document.getElementById('ts').textContent = 'Updated: ' + new Date().toLocaleTimeString() + ' | Uptime: ' + fmt(d.uptime_seconds);
+  const errRate = d.total_requests ? (d.total_errors/d.total_requests*100).toFixed(2) : '0';
+  const errClass = errRate > 5 ? 'err' : errRate > 1 ? 'warn' : 'ok';
+  const avgMs = d.avg_response_ms || 0;
+  const avgClass = avgMs > 2000 ? 'err' : avgMs > 500 ? 'warn' : 'ok';
+  document.getElementById('cards').innerHTML = `
+    <div class="card ok"><div class="lbl">Total Requests</div><div class="val">${d.total_requests}</div></div>
+    <div class="card ${errClass}"><div class="lbl">Error Rate</div><div class="val">${errRate}%</div></div>
+    <div class="card ${avgClass}"><div class="lbl">Avg Latency</div><div class="val">${avgMs.toFixed(1)}ms</div></div>
+    <div class="card ok"><div class="lbl">Total Errors</div><div class="val">${d.total_errors}</div></div>
+    <div class="card ok"><div class="lbl">Uptime</div><div class="val">${fmt(d.uptime_seconds)}</div></div>
+    <div class="card ok"><div class="lbl">Endpoints</div><div class="val">${Object.keys(d.endpoints||{}).length}</div></div>
+  `;
+  // Donut chart
+  const dist = d.status_code_distribution || {};
+  const codes = Object.keys(dist).sort();
+  const total = codes.reduce((s,k)=>s+dist[k],0) || 1;
+  const sc = document.getElementById('donutCanvas');
+  const ctx = sc.getContext('2d');
+  ctx.clearRect(0,0,160,160);
+  const scColors = {'200':'#22c55e','201':'#22c55e','301':'#3b82f6','302':'#3b82f6','307':'#3b82f6','400':'#eab308','404':'#f97316','422':'#f97316','429':'#ef4444','500':'#ef4444','503':'#ef4444'};
+  let start = -Math.PI/2;
+  codes.forEach(code=>{
+    const pct = dist[code]/total;
+    const end = start + pct * Math.PI * 2;
+    ctx.beginPath();ctx.moveTo(80,80);ctx.arc(80,80,70,start,end);ctx.closePath();
+    ctx.fillStyle = scColors[code] || '#64748b';ctx.fill();
+    start = end;
+  });
+  ctx.beginPath();ctx.arc(80,80,40,0,Math.PI*2);ctx.fillStyle='#0f172a';ctx.fill();
+  document.getElementById('donutLegend').innerHTML = codes.map(c=>`<span style="margin-right:12px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${scColors[c]||'#64748b'};margin-right:4px"></span>${c}: ${dist[c]}</span>`).join('');
+  // Endpoint table
+  const eps = Object.entries(d.endpoints||{}).sort((a,b)=>b[1].count-a[1].count).slice(0,20);
+  const maxCount = eps[0] ? eps[0][1].count : 1;
+  document.getElementById('epTable').innerHTML = eps.map(([key,ep])=>{
+    const [method,...pathParts] = key.split(' ');
+    const path = pathParts.join(' ');
+    const rate = ep.count ? (ep.error_rate*100).toFixed(1) : '0';
+    const rateClass = ep.error_rate > 0.05 ? 'red' : ep.error_rate > 0.01 ? 'yellow' : '';
+    return `<tr>
+      <td style="color:${colors[method]||'#e2e8f0'}">${method}</td>
+      <td>${path}</td>
+      <td>${ep.count}</td>
+      <td>${ep.error_count}</td>
+      <td class="${rateClass}" style="color:${rateClass==='red'?'#ef4444':rateClass==='yellow'?'#eab308':'#22c55e'}">${rate}%</td>
+      <td>${ep.avg_ms.toFixed(1)}</td>
+      <td>${ep.max_ms.toFixed(1)}</td>
+      <td style="width:120px"><div class="bar-bg"><div class="bar ${rateClass}" style="width:${(ep.count/maxCount*100)}%"></div></div></td>
+    </tr>`;
+  }).join('');
+}
+function fmt(s){if(s<60)return s.toFixed(0)+'s';if(s<3600)return (s/60).toFixed(1)+'m';return (s/3600).toFixed(1)+'h'}
+fetch_();setInterval(fetch_,3000);
+</script>
+</body>
+</html>
