@@ -1,0 +1,16 @@
+[
+  {
+    "id": "yt-delhi-traffic",
+    "url": "https://www.youtube.com/watch?v=8aINZD7m_s4",
+    "name": "Delhi Traffic CCTV (YouTube 24/7)",
+    "fps": 1,
+    "min_persons": 2
+  },
+  {
+    "id": "yt-indian-street",
+    "url": "https://www.youtube.com/watch?v=KQX1x-rGVVk",
+    "name": "Indian Street Live CCTV (YouTube 24/7)",
+    "fps": 1,
+    "min_persons": 2
+  }
+]
