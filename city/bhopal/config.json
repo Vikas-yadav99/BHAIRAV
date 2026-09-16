@@ -1,0 +1,32 @@
+{
+  "city": "Bhopal",
+  "state": "Madhya Pradesh",
+  "country": "India",
+  "center": {"lat": 23.2599, "lon": 77.4126},
+  "bounds": {"north": 23.35, "south": 23.15, "east": 77.55, "west": 77.30},
+  "cameras": [
+    {"id": "BPL-CAM-001", "name": "MP Nagar Square", "lat": 23.2347, "lon": 77.4010, "zone": "mp_nagar"},
+    {"id": "BPL-CAM-002", "name": "Habibganj Station", "lat": 23.2270, "lon": 77.4380, "zone": "habibganj"},
+    {"id": "BPL-CAM-003", "name": "New Market", "lat": 23.2690, "lon": 77.4098, "zone": "new_market"},
+    {"id": "BPL-CAM-004", "name": "Old City (Taj-ul-Masajid)", "lat": 23.2720, "lon": 77.4085, "zone": "old_city"},
+    {"id": "BPL-CAM-005", "name": "Kolar Road Junction", "lat": 23.2010, "lon": 77.4130, "zone": "kolar"},
+    {"id": "BPL-CAM-006", "name": "11 Number Bus Stop", "lat": 23.2283, "lon": 77.4360, "zone": "habibganj"},
+    {"id": "BPL-CAM-007", "name": "Ayodhya Bypass", "lat": 23.2420, "lon": 77.3870, "zone": "mp_nagar"},
+    {"id": "BPL-CAM-008", "name": "Bittan Market", "lat": 23.2600, "lon": 77.4250, "zone": "new_market"}
+  ],
+  "zones": [
+    {"id": "old_city", "name": "Old City", "priority": "high", "center": {"lat": 23.2720, "lon": 77.4085}, "radius_km": 1.5},
+    {"id": "mp_nagar", "name": "MP Nagar", "priority": "high", "center": {"lat": 23.2347, "lon": 77.4010}, "radius_km": 2.0},
+    {"id": "habibganj", "name": "Habibganj", "priority": "high", "center": {"lat": 23.2270, "lon": 77.4380}, "radius_km": 1.5},
+    {"id": "new_market", "name": "New Market", "priority": "medium", "center": {"lat": 23.2690, "lon": 77.4098}, "radius_km": 1.0},
+    {"id": "kolar", "name": "Kolar Road", "priority": "medium", "center": {"lat": 23.2010, "lon": 77.4130}, "radius_km": 2.5}
+  ],
+  "dispatch_center": {"lat": 23.2334, "lon": 77.4013, "name": "Bhopal Police Control Room"},
+  "police_stations": [
+    {"name": "TT Nagar PS", "lat": 23.2380, "lon": 77.3960},
+    {"name": "Habibganj PS", "lat": 23.2250, "lon": 77.4350},
+    {"name": "New Market PS", "lat": 23.2680, "lon": 77.4100},
+    {"name": "Kolar PS", "lat": 23.2020, "lon": 77.4150},
+    {"name": "Mahila PS", "lat": 23.2300, "lon": 77.4050}
+  ]
+}

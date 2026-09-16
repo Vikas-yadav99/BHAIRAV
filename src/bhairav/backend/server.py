@@ -2041,6 +2041,26 @@ Real-time AI-powered surveillance, incident reporting, and emergency dispatch sy
             "dispatch_center": config["dispatch_center"],
         }
 
+    @app.get("/api/cities")
+    def list_cities():
+        """List all available cities with camera/zone counts."""
+        from ..city_loader import list_available_cities
+        return {"cities": list_available_cities()}
+
+    @app.get("/api/cities/{city_name}")
+    def get_city(city_name: str):
+        """Get configuration for a specific city."""
+        from ..city_loader import get_city_config as _get_config
+        config = _get_config(city_name)
+        if not config:
+            return {"error": f"City '{city_name}' not found"}, 404
+        return {
+            "city": config["city"], "state": config["state"],
+            "country": config["country"], "center": config["center"],
+            "bounds": config["bounds"], "cameras": config["cameras"],
+            "zones": config["zones"], "dispatch_center": config["dispatch_center"],
+        }
+
     # --- Camera Management ---
     from starlette.responses import Response
 

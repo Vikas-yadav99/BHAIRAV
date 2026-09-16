@@ -1,0 +1,33 @@
+{
+  "city": "Jaipur",
+  "state": "Rajasthan",
+  "country": "India",
+  "center": {"lat": 26.9124, "lon": 75.7873},
+  "bounds": {"north": 27.00, "south": 26.82, "east": 75.90, "west": 75.68},
+  "cameras": [
+    {"id": "JAI-CAM-001", "name": "Hawa Mahal Road", "lat": 26.9239, "lon": 75.8267, "zone": "pink_city"},
+    {"id": "JAI-CAM-002", "name": "Johari Bazaar", "lat": 26.9220, "lon": 75.8290, "zone": "pink_city"},
+    {"id": "JAI-CAM-003", "name": "MI Road Junction", "lat": 26.9058, "lon": 75.8028, "zone": "mi_road"},
+    {"id": "JAI-CAM-004", "name": "Hindi College Chowk", "lat": 26.8926, "lon": 75.8080, "zone": "MI_road"},
+    {"id": "JAI-CAM-005", "name": "Vaishali Nagar", "lat": 26.9250, "lon": 75.7450, "zone": "vaishali"},
+    {"id": "JAI-CAM-006", "name": "Malviya Nagar", "lat": 26.8850, "lon": 75.8100, "zone": "malviya"},
+    {"id": "JAI-CAM-007", "name": "Man Sarovar", "lat": 26.8580, "lon": 75.7950, "zone": "malviya"},
+    {"id": "JAI-CAM-008", "name": "Tonk Road", "lat": 26.8800, "lon": 75.8050, "zone": "malviya"},
+    {"id": "JAI-CAM-009", "name": "City Palace Gate", "lat": 26.9258, "lon": 75.8237, "zone": "pink_city"},
+    {"id": "JAI-CAM-010", "name": "Birla Mandir Road", "lat": 26.8930, "lon": 75.8124, "zone": "MI_road"}
+  ],
+  "zones": [
+    {"id": "pink_city", "name": "Pink City (Old Jaipur)", "priority": "high", "center": {"lat": 26.9239, "lon": 75.8267}, "radius_km": 1.5},
+    {"id": "mi_road", "name": "MI Road", "priority": "high", "center": {"lat": 26.9058, "lon": 75.8028}, "radius_km": 2.0},
+    {"id": "vaishali", "name": "Vaishali Nagar", "priority": "medium", "center": {"lat": 26.9250, "lon": 75.7450}, "radius_km": 2.0},
+    {"id": "malviya", "name": "Malviya Nagar", "priority": "medium", "center": {"lat": 26.8850, "lon": 75.8100}, "radius_km": 2.5}
+  ],
+  "dispatch_center": {"lat": 26.9124, "lon": 75.7873, "name": "Jaipur Police Control Room"},
+  "police_stations": [
+    {"name": "Tripolia Bazaar PS", "lat": 26.9230, "lon": 75.8275},
+    {"name": "MI Road PS", "lat": 26.9060, "lon": 75.8035},
+    {"name": "Vaishali Nagar PS", "lat": 26.9240, "lon": 75.7460},
+    {"name": "Malviya Nagar PS", "lat": 26.8860, "lon": 75.8110},
+    {"name": "Hawa Mahal PS", "lat": 26.9245, "lon": 75.8260}
+  ]
+}

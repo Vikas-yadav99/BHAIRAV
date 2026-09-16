@@ -154,3 +154,27 @@ def load_city(store, dispatch_engine=None, city_name: str = "indore",
 def get_city_config(city_name: str = "indore") -> dict | None:
     """Get city config for API responses."""
     return load_city_config(city_name)
+
+
+def list_available_cities() -> list[dict]:
+    """List all city configs available on disk."""
+    from pathlib import Path
+    city_dir = Path(__file__).resolve().parent.parent.parent / "city"
+    cities = []
+    if city_dir.exists():
+        for city_path in sorted(city_dir.iterdir()):
+            cfg_file = city_path / "config.json"
+            if cfg_file.exists():
+                try:
+                    import json
+                    cfg = json.loads(cfg_file.read_text(encoding="utf-8"))
+                    cities.append({
+                        "name": cfg.get("city", city_path.name),
+                        "state": cfg.get("state", ""),
+                        "cameras": len(cfg.get("cameras", [])),
+                        "zones": len(cfg.get("zones", [])),
+                        "police_stations": len(cfg.get("police_stations", [])),
+                    })
+                except Exception:
+                    pass
+    return cities

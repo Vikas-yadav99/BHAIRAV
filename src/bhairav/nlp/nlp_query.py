@@ -99,6 +99,7 @@ class NLPQueryEngine:
             "severity": None,
             "zones": [],
             "cameras": [],
+            "locations": [],
             "time_range": None,
             "limit": 50,
         }
@@ -132,6 +133,17 @@ class NLPQueryEngine:
         # Camera detection
         cam_match = re.findall(r"(?:camera|cam)\s*([a-z0-9\-]+)", lower)
         parsed["cameras"] = [c.upper() for c in cam_match]
+
+        # Location name detection (Sarafa, Vijay Nagar, etc.)
+        location_names = [
+            "sarafa", "rajwada", "vijay nagar", "palasia", "abh road",
+            "ab road", "mr 10", "khajrana", "bhanwarkuan", "mhow",
+            "airport", "hawa mahal", "johari bazaar", "mi road",
+            "pink city", "mp nagar", "habibganj", "kolar",
+        ]
+        for loc in location_names:
+            if loc in lower:
+                parsed["locations"].append(loc)
 
         # Time range
         if "today" in lower:
@@ -171,6 +183,8 @@ class NLPQueryEngine:
             filters["zones"] = parsed["zones"]
         if parsed["cameras"]:
             filters["cameras"] = parsed["cameras"]
+        if parsed.get("locations"):
+            filters["locations"] = parsed["locations"]
         if parsed["time_range"]:
             filters["start_time"] = parsed["time_range"]["start"]
             filters["end_time"] = parsed["time_range"]["end"]

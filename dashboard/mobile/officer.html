@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>BHAIRAV Officer App</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0a0e1a;--card:#141b2d;--accent:#f59e0b;--red:#ef4444;--green:#22c55e;--blue:#3b82f6;--text:#e2e8f0;--muted:#64748b}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;max-width:430px;margin:0 auto}
+.header{background:linear-gradient(135deg,#1a1a2e,#16213e);padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1e293b}
+.header h1{font-size:18px;color:var(--accent)}
+.status-dot{width:10px;height:10px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px}
+.tab-bar{display:flex;background:#0f172a;border-top:1px solid #1e293b;position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;z-index:10}
+.tab{flex:1;padding:10px 0;text-align:center;font-size:11px;color:var(--muted);cursor:pointer}
+.tab.active{color:var(--accent)}
+.tab-icon{font-size:20px;display:block;margin-bottom:2px}
+.page{padding:16px 20px;padding-bottom:80px;display:none}
+.page.active{display:block}
+.alert-card{background:var(--card);border-radius:12px;padding:16px;margin-bottom:12px;border-left:4px solid var(--red)}
+.alert-card.medical{border-left-color:#f97316}
+.alert-card.fire{border-left-color:var(--red)}
+.alert-card.crime{border-left-color:#a855f7}
+.alert-card.info{border-left-color:var(--blue)}
+.alert-level{font-size:12px;font-weight:700;padding:2px 8px;border-radius:4px;display:inline-block;margin-bottom:8px}
+.level-4{background:var(--red);color:#fff}
+.level-3{background:#f97316;color:#fff}
+.level-2{background:var(--accent);color:#000}
+.level-1{background:var(--blue);color:#fff}
+.alert-title{font-size:16px;font-weight:600;margin-bottom:4px}
+.alert-meta{font-size:13px;color:var(--muted)}
+.alert-actions{display:flex;gap:8px;margin-top:12px}
+.btn{padding:10px 20px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;flex:1}
+.btn-accept{background:var(--green);color:#fff}
+.btn-decline{background:#374151;color:var(--muted)}
+.btn-resolve{background:var(--blue);color:#fff}
+.btn SOS{background:var(--red);color:#fff;font-size:18px;padding:16px;border-radius:50%;width:80px;height:80px;flex:none;align-self:center}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.stat-card{background:var(--card);border-radius:10px;padding:14px;text-align:center}
+.stat-num{font-size:28px;font-weight:700;color:var(--accent)}
+.stat-label{font-size:12px;color:var(--muted);margin-top:4px}
+.map-placeholder{background:var(--card);border-radius:12px;height:300px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;margin-bottom:16px}
+.profile-section{background:var(--card);border-radius:12px;padding:16px;margin-bottom:16px}
+.profile-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #1e293b}
+.profile-row:last-child{border:none}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>BHAIRAV</h1>
+  <div><span class="status-dot"></span>On Duty</div>
+</div>
+
+<!-- Active Alerts Page -->
+<div class="page active" id="alerts-page">
+  <h2 style="margin-bottom:16px;font-size:20px">Active Alerts</h2>
+  <div class="alert-card">
+    <span class="alert-level level-4">L4 CRITICAL</span>
+    <div class="alert-title">Fight Detected - Sarafa Bazaar</div>
+    <div class="alert-meta">📍 0.8 km away • 🕐 2 min ago</div>
+    <div class="alert-actions">
+      <button class="btn btn-accept">Accept</button>
+      <button class="btn btn-decline">Decline</button>
+    </div>
+  </div>
+  <div class="alert-card medical">
+    <span class="alert-level level-3">L3 HIGH</span>
+    <div class="alert-title">Medical Emergency - Rajwada</div>
+    <div class="alert-meta">📍 1.2 km away • 🕐 5 min ago</div>
+    <div class="alert-actions">
+      <button class="btn btn-accept">Accept</button>
+      <button class="btn btn-decline">Decline</button>
+    </div>
+  </div>
+  <div class="alert-card info">
+    <span class="alert-level level-2">L2 MEDIUM</span>
+    <div class="alert-title">Crowding Alert - Vijay Nagar</div>
+    <div class="alert-meta">📍 2.1 km away • 🕐 8 min ago</div>
+    <div class="alert-actions">
+      <button class="btn btn-accept">Accept</button>
+      <button class="btn btn-decline">Decline</button>
+    </div>
+  </div>
+</div>
+
+<!-- Map Page -->
+<div class="page" id="map-page">
+  <h2 style="margin-bottom:16px;font-size:20px">Live Map</h2>
+  <div class="map-placeholder">🗺️ Interactive Map View<br><small>Leaflet + OpenStreetMap</small></div>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="stat-num">3</div><div class="stat-label">Active Alerts</div></div>
+    <div class="stat-card"><div class="stat-num">12</div><div class="stat-label">Officers Online</div></div>
+  </div>
+</div>
+
+<!-- My Incidents Page -->
+<div class="page" id="incidents-page">
+  <h2 style="margin-bottom:16px;font-size:20px">My Assignments</h2>
+  <div class="alert-card">
+    <span class="alert-level level-3">RESOLVED</span>
+    <div class="alert-title">Theft Report - Palasia</div>
+    <div class="alert-meta">Resolved in 8 min • Yesterday</div>
+  </div>
+  <div class="alert-card">
+    <span class="alert-level level-4">ON SCENE</span>
+    <div class="alert-title">Fight - Sarafa Bazaar</div>
+    <div class="alert-meta">📍 You are here • ETA: arrived</div>
+    <div class="alert-actions">
+      <button class="btn btn-resolve">Mark Resolved</button>
+    </div>
+  </div>
+</div>
+
+<!-- Profile Page -->
+<div class="page" id="profile-page">
+  <h2 style="margin-bottom:16px;font-size:20px">My Profile</h2>
+  <div class="profile-section">
+    <div class="profile-row"><span>Name</span><strong>Inspector Raj Kumar</strong></div>
+    <div class="profile-row"><span>Role</span><strong>Police</strong></div>
+    <div class="profile-row"><span>Station</span><strong>Vijay Nagar PS</strong></div>
+    <div class="profile-row"><span>Phone</span><strong>+91 98765 43210</strong></div>
+  </div>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="stat-num">12</div><div class="stat-label">Resolved</div></div>
+    <div class="stat-card"><div class="stat-num">4.2m</div><div class="stat-label">Avg Response</div></div>
+  </div>
+  <button class="btn btn-decline" style="width:100%;margin-top:16px">Go Off Duty</button>
+</div>
+
+<!-- SOS Button -->
+<div style="position:fixed;bottom:80px;right:20px;z-index:20">
+  <button class="btn SOS">SOS</button>
+</div>
+
+<!-- Tab Bar -->
+<div class="tab-bar">
+  <div class="tab active" onclick="showPage('alerts-page')"><span class="tab-icon">🚨</span>Alerts</div>
+  <div class="tab" onclick="showPage('map-page')"><span class="tab-icon">🗺️</span>Map</div>
+  <div class="tab" onclick="showPage('incidents-page')"><span class="tab-icon">📋</span>Tasks</div>
+  <div class="tab" onclick="showPage('profile-page')"><span class="tab-icon">👤</span>Profile</div>
+</div>
+
+<script>
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+}
+</script>
+</body>
+</html>
