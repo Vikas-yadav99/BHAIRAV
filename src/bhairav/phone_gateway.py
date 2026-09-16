@@ -1,8 +1,8 @@
 """BHAIRAV Phone Gateway — SMS, WhatsApp, and IVR reporting.
 
 Phase 5: Allows anyone to report incidents via:
-- SMS to a dedicated number (Twilio/TextBelt stub)
-- WhatsApp Business API (stub)
+- SMS to a dedicated number (Twilio / MSG91 / TextBelt)
+- WhatsApp Business API
 - IVR (Interactive Voice Response) for feature phones
 - Phone number verification via OTP
 
@@ -11,6 +11,7 @@ This fills the gap for people without smartphones or internet access.
 from __future__ import annotations
 
 import logging
+import os
 import time
 import uuid
 from collections import Counter
@@ -155,26 +156,48 @@ class PhoneVerifier:
 
 # ── SMS Gateway Stub ────────────────────────────────────────────────────────
 
+
 class SMSGateway:
-    """SMS gateway stub — in production, replaces with Twilio/TextBelt.
+    """Real SMS gateway with Twilio / MSG91 / TextBelt support.
+
+    Auto-detects provider from constructor args or environment variables:
+        TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN + TWILIO_FROM_NUMBER
+        MSG91_API_KEY + MSG91_SENDER_ID
+        TEXTBELT_API_KEY
+
+    Falls back to stub (log-only) when no credentials are configured.
 
     Handles:
     - Outbound SMS (alerts to officers, OTP to reporters)
     - Inbound SMS (incident reports from public)
-    - Delivery status tracking
+    - Delivery status tracking with retry
     """
 
-    def __init__(self, provider: str = "stub", api_key: str | None = None,
-                 from_number: str = "+91-BHAIRAV"):
-        self.provider = provider
-        self.api_key = api_key
-        self.from_number = from_number
+    def __init__(self, provider: str | None = None, api_key: str | None = None,
+                 from_number: str | None = None,
+                 account_sid: str | None = None, auth_token: str | None = None):
+        self.provider = provider or self._detect_provider()
+        self.api_key = api_key or os.environ.get("TEXTBELT_API_KEY") or os.environ.get("MSG91_API_KEY")
+        self.account_sid = account_sid or os.environ.get("TWILIO_ACCOUNT_SID")
+        self.auth_token = auth_token or os.environ.get("TWILIO_AUTH_TOKEN")
+        self.from_number = from_number or os.environ.get("TWILIO_FROM_NUMBER", "+91-BHAIRAV")
+        self.msg91_sender = os.environ.get("MSG91_SENDER_ID", "BHAIRAV")
         self._sent: list[dict] = []
         self._received: list[dict] = []
         self._stats = {"sent": 0, "received": 0, "failed": 0}
 
+    @staticmethod
+    def _detect_provider() -> str:
+        if os.environ.get("TWILIO_ACCOUNT_SID"):
+            return "twilio"
+        if os.environ.get("MSG91_API_KEY"):
+            return "msg91"
+        if os.environ.get("TEXTBELT_API_KEY"):
+            return "textbelt"
+        return "stub"
+
     def send(self, to: str, message: str, priority: str = "normal") -> dict:
-        """Send an SMS."""
+        """Send an SMS via the configured provider with retry."""
         now = time.time()
         sms = {
             "id": uuid.uuid4().hex[:12],
@@ -183,18 +206,101 @@ class SMSGateway:
             "message": message,
             "priority": priority,
             "sent_at": now,
-            "status": "sent",
+            "status": "pending",
+            "provider": self.provider,
         }
-        self._sent.append(sms)
-        self._stats["sent"] += 1
 
-        if self.provider == "stub":
-            log.info("SMS [%s] → %s: %s", priority, to, message[:60])
+        for attempt in range(3):
+            try:
+                if self.provider == "twilio":
+                    result = self._send_twilio(to, message)
+                elif self.provider == "msg91":
+                    result = self._send_msg91(to, message)
+                elif self.provider == "textbelt":
+                    result = self._send_textbelt(to, message)
+                else:
+                    log.info("SMS [%s] (stub) -> %s: %s", priority, to, message[:60])
+                    result = {"ok": True}
+
+                if result.get("ok"):
+                    sms["status"] = "sent"
+                    self._stats["sent"] += 1
+                    break
+                else:
+                    sms["status"] = "failed"
+                    sms["error"] = result.get("error", "unknown")
+                    log.warning("SMS attempt %d failed: %s", attempt + 1, result.get("error"))
+            except Exception as exc:
+                sms["status"] = "failed"
+                sms["error"] = str(exc)
+                log.warning("SMS attempt %d exception: %s", attempt + 1, exc)
+                if attempt < 2:
+                    time.sleep(1 * (attempt + 1))
         else:
-            # Production: POST to Twilio/TextBelt API
-            log.info("SMS via %s → %s: %s", self.provider, to, message[:60])
+            self._stats["failed"] += 1
+            sms["status"] = "failed"
 
+        self._sent.append(sms)
         return sms
+
+    def _send_twilio(self, to: str, message: str) -> dict:
+        """Send SMS via Twilio REST API."""
+        import httpx
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{self.account_sid}/Messages.json"
+        resp = httpx.post(
+            url,
+            auth=(self.account_sid, self.auth_token),
+            data={"To": to, "From": self.from_number, "Body": message},
+            timeout=15.0,
+        )
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            log.info("Twilio SMS sent: %s -> %s (sid=%s)", self.from_number, to, data.get("sid"))
+            return {"ok": True, "sid": data.get("sid")}
+        log.error("Twilio error %d: %s", resp.status_code, resp.text[:200])
+        return {"ok": False, "error": f"Twilio {resp.status_code}: {resp.text[:200]}"}
+
+    def _send_msg91(self, to: str, message: str) -> dict:
+        """Send SMS via MSG91 API (India-focused)."""
+        import httpx
+        phone = to.lstrip("+")
+        if phone.startswith("91") and len(phone) == 12:
+            phone = phone[2:]
+        url = "https://api.msg91.com/api/v5/flow"
+        payload = {
+            "flow_id": os.environ.get("MSG91_FLOW_ID", ""),
+            "mobiles": f"91{phone}",
+            "VAR1": message[:160],
+        }
+        headers = {"authkey": self.api_key or "", "Content-Type": "application/json"}
+        resp = httpx.post(url, json=payload, headers=headers, timeout=15.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("type") == "success":
+                log.info("MSG91 SMS sent to %s", phone)
+                return {"ok": True, "request_id": data.get("request_id")}
+        log.error("MSG91 error %d: %s", resp.status_code, resp.text[:200])
+        return {"ok": False, "error": f"MSG91 {resp.status_code}: {resp.text[:200]}"}
+
+    def _send_textbelt(self, to: str, message: str) -> dict:
+        """Send SMS via TextBelt API (limited free tier)."""
+        import httpx
+        resp = httpx.post(
+            "https://textbelt.com/text",
+            data={"phone": to, "message": message, "key": self.api_key or "textbelt"},
+            timeout=15.0,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("success"):
+                log.info("TextBelt SMS sent to %s (quota: %s)", to, data.get("quotaRemaining"))
+                return {"ok": True, "quota": data.get("quotaRemaining")}
+        return {"ok": False, "error": f"TextBelt {resp.status_code}"}
+
+    @property
+    def is_real(self) -> bool:
+        """True if a real provider is configured (not stub)."""
+        return self.provider != "stub"
 
     def receive(self, from_number: str, body: str) -> dict:
         """Process an incoming SMS (incident report)."""
@@ -208,7 +314,6 @@ class SMSGateway:
         self._received.append(sms)
         self._stats["received"] += 1
 
-        # Parse the message
         parsed = parse_sms_message(body)
         sms["parsed"] = parsed
 
@@ -225,8 +330,6 @@ class SMSGateway:
 
     def stats(self) -> dict:
         return dict(self._stats)
-
-
 # ── WhatsApp Gateway Stub ──────────────────────────────────────────────────
 
 class WhatsAppGateway:

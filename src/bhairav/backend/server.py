@@ -2022,4 +2022,50 @@ Real-time AI-powered surveillance, incident reporting, and emergency dispatch sy
             "dispatch_center": config["dispatch_center"],
         }
 
+    # --- Camera Management ---
+    from starlette.responses import Response
+
+    @app.get("/api/cameras")
+    def list_cameras():
+        """List all active cameras with status, FPS, error count."""
+        from ..camera_manager import get_camera_manager
+        return {"cameras": get_camera_manager().list_cameras()}
+
+    @app.post("/api/cameras")
+    def add_camera(payload: dict = Body(...)):
+        """Add a new RTSP camera at runtime."""
+        from ..camera_manager import get_camera_manager
+        cam_id = payload.get("id", "")
+        rtsp_url = payload.get("rtsp_url", "")
+        name = payload.get("name", cam_id)
+        if not cam_id or not rtsp_url:
+            from starlette.responses import JSONResponse as _JR
+            return _JR({"ok": False, "error": "id and rtsp_url required"}, status_code=400)
+        return get_camera_manager().add_camera(cam_id, rtsp_url, name)
+
+    @app.delete("/api/cameras/{camera_id}")
+    def remove_camera(camera_id: str):
+        """Stop and remove a camera."""
+        from ..camera_manager import get_camera_manager
+        return get_camera_manager().remove_camera(camera_id)
+
+    @app.get("/api/cameras/{camera_id}")
+    def get_camera(camera_id: str):
+        """Get status of a single camera."""
+        from ..camera_manager import get_camera_manager
+        cam = get_camera_manager().get_camera(camera_id)
+        if cam is None:
+            from starlette.responses import JSONResponse as _JR
+            return _JR({"error": f"Camera {camera_id} not found"}, status_code=404)
+        return cam
+
+    @app.get("/api/cameras/{camera_id}/snapshot")
+    def camera_snapshot(camera_id: str):
+        """Get latest JPEG snapshot from a camera."""
+        from ..camera_manager import get_camera_manager
+        jpeg = get_camera_manager().get_snapshot(camera_id)
+        if jpeg is None:
+            return Response(content=b"", status_code=404, media_type="image/jpeg")
+        return Response(content=jpeg, media_type="image/jpeg")
+
     return app
