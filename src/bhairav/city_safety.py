@@ -985,6 +985,75 @@ class CitySafetyEngine:
             "trajectory": self.gps_tracker.get_trajectory(officer_id),
         }
 
+    def check_sla_breaches(self) -> list[dict]:
+        """Check for incidents approaching or breaching SLA targets.
+
+        Returns list of incidents with remaining time and breach status.
+        SLA targets: L4=3min, L3=5min, L2=15min, L1=60min.
+        """
+        now = time.time()
+        sla_targets = {4: 180, 3: 300, 2: 900, 1: 3600}  # seconds
+        breaches = []
+
+        for inc in self.store.list_incidents():
+            if inc.status in ("resolved", "cancelled"):
+                continue
+            target = sla_targets.get(inc.emergency_level, 600)
+            elapsed = now - inc.created_at
+            remaining = target - elapsed
+
+            breaches.append({
+                "incident_id": inc.id,
+                "category": inc.category,
+                "emergency_level": inc.emergency_level,
+                "location_name": inc.location_name,
+                "status": inc.status,
+                "elapsed_sec": round(elapsed, 1),
+                "sla_target_sec": target,
+                "remaining_sec": round(remaining, 1),
+                "breached": remaining < 0,
+                "percent_used": round(min(elapsed / target * 100, 999), 1),
+                "warning": remaining < target * 0.3 and remaining > 0,
+            })
+
+        # Sort: breached first, then by remaining time (most urgent first)
+        breaches.sort(key=lambda x: (not x["breached"], x["remaining_sec"]))
+        return breaches
+
+    def get_government_report(self, days: int = 30) -> dict:
+        """Generate formatted report for government officials."""
+        cutoff = time.time() - (days * 86400)
+        incidents = [i for i in self.store.list_incidents() if i.created_at > cutoff]
+        officers = self.store.list_officers()
+
+        # Category breakdown
+        categories = {}
+        for inc in incidents:
+            cat = inc.category
+            if cat not in categories:
+                categories[cat] = {"total": 0, "resolved": 0, "levels": {}}
+            categories[cat]["total"] += 1
+            if inc.status == "resolved":
+                categories[cat]["resolved"] += 1
+            lvl = inc.emergency_level
+            categories[cat]["levels"][lvl] = categories[cat]["levels"].get(lvl, 0) + 1
+
+        # Response times
+        response_metrics = self.metrics.get_summary(hours=days * 24)
+
+        return {
+            "period": f"Last {days} days",
+            "total_incidents": len(incidents),
+            "total_officers": len(officers),
+            "category_breakdown": categories,
+            "response_metrics": response_metrics,
+            "summary": {
+                "total": len(incidents),
+                "resolved": sum(1 for i in incidents if i.status == "resolved"),
+                "pending": sum(1 for i in incidents if i.status not in ("resolved", "cancelled")),
+            },
+        }
+
     def stats(self) -> dict:
         return {
             "dedup": self.deduplicator.stats(),

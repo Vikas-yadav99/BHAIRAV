@@ -34,6 +34,7 @@ import asyncio
 import hmac
 import json
 import logging
+import os
 import threading
 import time
 import urllib.request
@@ -1724,9 +1725,27 @@ Real-time AI-powered surveillance, incident reporting, and emergency dispatch sy
     from ..incidents import IncidentStore, DispatchEngine as _DispatchEngine
     from ..incidents import create_incident_routes, seed_demo_data
 
-    inc_store = incident_store or IncidentStore(
-        path=str(Path(store.root).parent / "incidents")
-    )
+    # Use PostgreSQL if BHAIRAV_DB_URL is set, otherwise JSONL files
+    _db_url = os.environ.get("BHAIRAV_DB_URL")
+    if _db_url and not incident_store:
+        try:
+            from ..backend.pg_incidents import PgIncidentStore
+            inc_store = PgIncidentStore(_db_url)
+            log.info("Using PostgreSQL backend: %s", _db_url[:30])
+        except ImportError:
+            log.warning("psycopg not installed, falling back to JSONL")
+            inc_store = IncidentStore(
+                path=str(Path(store.root).parent / "incidents")
+            )
+        except Exception as exc:
+            log.warning("PostgreSQL connection failed (%s), falling back to JSONL", exc)
+            inc_store = IncidentStore(
+                path=str(Path(store.root).parent / "incidents")
+            )
+    else:
+        inc_store = incident_store or IncidentStore(
+            path=str(Path(store.root).parent / "incidents")
+        )
     inc_dispatch = incident_dispatch or _DispatchEngine(inc_store)
 
     # Seed with real city data (Indore) or fall back to Delhi demo
