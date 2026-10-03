@@ -203,18 +203,65 @@ class CameraCalibrator:
         return (round(lat, 6), round(lng, 6))
 
     def world_to_pixel(self, lat: float, lng: float) -> tuple[float, float] | None:
-        """Convert GPS (lat, lng) to pixel coordinates (approximate inverse).
+        """Convert GPS (lat, lng) to pixel coordinates using inverse bilinear interpolation.
 
-        Returns (px, py) or None if not calibrated.
+        Returns (px, py) or None if not calibrated or point out of FOV.
         """
-        if not self._calibrated or not self._homography:
+        if not self._calibrated or not self._points:
             return None
 
-        # Use center of calibration points as reference, then offset
-        if not self._points:
-            return None
+        # For 4 calibration points forming a quadrilateral, use inverse bilinear:
+        # Find (s, t) in [0,1] x [0,1] such that GPS = bilinear interpolation
+        # of the four corner GPS coords, then apply same (s,t) to pixel coords.
 
-        # Simple approach: find the nearest calibration point and interpolate
+        if len(self._points) >= 4:
+            # Use top-left, top-right, bottom-left, bottom-right
+            pts = sorted(self._points, key=lambda p: (p.pixel_y, p.pixel_x))
+            # Split into top row and bottom row
+            top = sorted(pts[:len(pts)//2], key=lambda p: p.pixel_x)
+            bot = sorted(pts[len(pts)//2:], key=lambda p: p.pixel_x)
+            if len(top) >= 2 and len(bot) >= 2:
+                tl, tr = top[0], top[-1]
+                bl, br = bot[0], bot[-1]
+
+                # Bilinear inverse: solve for (s, t)
+                # GPS = (1-s)(1-t)*tl + s*(1-t)*tr + (1-s)*t*bl + s*t*br
+                # => lat = tl.lat + s*(tr.lat - tl.lat) + t*(bl.lat - tl.lat) + s*t*(tl.lat - tr.lat - bl.lat + br.lat)
+                # Same for lng
+                a_lat = tl.lat; b_lat = tr.lat - tl.lat; c_lat = bl.lat - tl.lat
+                d_lat = tl.lat - tr.lat - bl.lat + br.lat
+                a_lng = tl.lng; b_lng = tr.lng - tl.lng; c_lng = bl.lng - tl.lng
+                d_lng = tl.lng - tr.lng - bl.lng + br.lng
+
+                # Solve numerically with Newton's method
+                s, t = 0.5, 0.5
+                for _ in range(20):
+                    f = a_lat + b_lat*s + c_lat*t + d_lat*s*t - lat
+                    g = a_lng + b_lng*s + c_lng*t + d_lng*s*t - lng
+                    if abs(f) < 1e-10 and abs(g) < 1e-10:
+                        break
+                    # Jacobian
+                    dfds = b_lat + d_lat*t
+                    dfdt = c_lat + d_lat*s
+                    dgds = b_lng + d_lng*t
+                    dgdt = c_lng + d_lng*s
+                    det = dfds * dgdt - dfdt * dgds
+                    if abs(det) < 1e-12:
+                        break
+                    s -= (f * dgdt - g * dfdt) / det
+                    t -= (g * dfds - f * dgds) / det
+
+                if -0.1 <= s <= 1.1 and -0.1 <= t <= 1.1:
+                    s = max(0, min(1, s))
+                    t = max(0, min(1, t))
+                    # Interpolate pixel coordinates using same (s, t)
+                    px = (1-s)*(1-t)*tl.pixel_x + s*(1-t)*tr.pixel_x + (1-s)*t*bl.pixel_x + s*t*br.pixel_x
+                    py = (1-s)*(1-t)*tl.pixel_y + s*(1-t)*tr.pixel_y + (1-s)*t*bl.pixel_y + s*t*br.pixel_y
+                    if 0 <= px <= self.image_width and 0 <= py <= self.image_height:
+                        return (round(px, 1), round(py, 1))
+                return None
+
+        # Fallback for < 4 points: use nearest-neighbor interpolation
         min_dist = float("inf")
         nearest = None
         for p in self._points:
@@ -222,35 +269,8 @@ class CameraCalibrator:
             if d < min_dist:
                 min_dist = d
                 nearest = p
-
-        if nearest is None or min_dist > 0.1:
-            return None
-
-        # Use the forward transform iteratively (Newton's method approximation)
-        # Start from the nearest calibration point's pixel coordinates
-        px, py = nearest.pixel_x, nearest.pixel_y
-        for _ in range(5):
-            gps = self.pixel_to_world(px, py)
-            if gps is None:
-                break
-            dlat = lat - gps[0]
-            dlng = lng - gps[1]
-            # Rough scale: 1 pixel ≈ delta_gps / delta_pixel
-            if len(self._points) >= 2:
-                ref = self._points[0]
-                ref_gps = self.pixel_to_world(ref.pixel_x, ref.pixel_y)
-                if ref_gps:
-                    scale_lat = (ref_gps[0] - gps[0]) / max(ref.pixel_x - px, 1)
-                    scale_lng = (ref_gps[1] - gps[1]) / max(ref.pixel_y - py, 1)
-                    px += dlat / max(abs(scale_lat), 1e-8)
-                    py += dlng / max(abs(scale_lng), 1e-8)
-                    continue
-            # Fallback: rough 1 pixel per 0.0001 degree
-            px += dlat * 10000
-            py += dlng * 10000
-
-        if 0 <= px <= self.image_width and 0 <= py <= self.image_height:
-            return (round(px, 1), round(py, 1))
+        if nearest and min_dist < 0.01:
+            return (nearest.pixel_x, nearest.pixel_y)
         return None
 
     def get_fov_polygon(self, num_points: int = 8) -> list[dict]:

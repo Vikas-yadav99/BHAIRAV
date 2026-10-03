@@ -2064,6 +2064,22 @@ Real-time AI-powered surveillance, incident reporting, and emergency dispatch sy
     # --- Camera Management ---
     from starlette.responses import Response
 
+
+    # ---- Singletons for live-feed and calibration ----------------------------
+
+    _lfm_instance = None
+    _cal_store: dict = {}
+
+    def _live_feed_manager():
+        nonlocal _lfm_instance
+        if _lfm_instance is None:
+            from ..live_feed import LiveFeedManager
+            _lfm_instance = LiveFeedManager()
+        return _lfm_instance
+
+    def _calibration_store() -> dict:
+        return _cal_store
+
     @app.get("/api/cameras")
     def list_cameras():
         """List all active cameras with status, FPS, error count."""
@@ -2106,5 +2122,126 @@ Real-time AI-powered surveillance, incident reporting, and emergency dispatch sy
         if jpeg is None:
             return Response(content=b"", status_code=404, media_type="image/jpeg")
         return Response(content=jpeg, media_type="image/jpeg")
+
+
+    # ---- Live Feed API --------------------------------------------------------
+
+    @app.get("/api/live-feed/streams")
+    def live_feed_list(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """List all active live feed streams."""
+        mgr = _live_feed_manager()
+        return {"streams": mgr.list_streams()}
+
+    @app.post("/api/live-feed/start")
+    def live_feed_start(payload: dict = Body(...),
+                        claims: dict = Depends(require(PERM_USERS))):
+        """Start processing a live feed stream."""
+        from ..live_feed import StreamConfig
+        mgr = _live_feed_manager()
+        cfg = StreamConfig(
+            id=payload.get("id", f"stream-{int(time.time())}"),
+            url=payload["url"],
+            name=payload.get("name", ""),
+            fps=payload.get("fps", 2),
+            min_persons=payload.get("min_persons", 1),
+        )
+        proc = mgr.add_stream(cfg)
+        return {"status": "started", "stream": proc.get_status()}
+
+    @app.post("/api/live-feed/stop/{stream_id}")
+    def live_feed_stop(stream_id: str,
+                       claims: dict = Depends(require(PERM_USERS))):
+        """Stop a live feed stream."""
+        mgr = _live_feed_manager()
+        mgr.remove_stream(stream_id)
+        return {"status": "stopped", "stream_id": stream_id}
+
+    @app.get("/api/live-feed/alerts")
+    def live_feed_alerts(claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """Get recent alerts from live feed processing."""
+        mgr = _live_feed_manager()
+        all_alerts = []
+        for s in mgr.list_streams():
+            all_alerts.extend(s.get("recent_alerts", []))
+        all_alerts.sort(key=lambda a: a.get("timestamp", 0), reverse=True)
+        return {"alerts": all_alerts[:50], "count": len(all_alerts)}
+
+    # ---- Camera Calibration API -----------------------------------------------
+
+    @app.get("/api/calibrate/{camera_id}")
+    def get_calibration(camera_id: str,
+                        claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """Get calibration data for a camera."""
+        data = _calibration_store().get(camera_id)
+        if data is None:
+            return {"camera_id": camera_id, "calibrated": False, "points": []}
+        return data
+
+    @app.post("/api/calibrate/{camera_id}/point")
+    def add_calibration_point(camera_id: str, payload: dict = Body(...),
+                              claims: dict = Depends(require(PERM_USERS))):
+        """Add a calibration point (pixel -> GPS mapping)."""
+        from ..calibration import CameraCalibrator
+        store = _calibration_store()
+        data = store.get(camera_id) or {
+            "camera_id": camera_id,
+            "image_width": payload.get("image_width", 1920),
+            "image_height": payload.get("image_height", 1080),
+            "points": [],
+            "calibrated": False,
+        }
+        cal = CameraCalibrator.from_dict(data)
+        cal.add_calibration_point(
+            payload["pixel_x"], payload["pixel_y"],
+            payload["lat"], payload["lng"],
+            label=payload.get("label", ""),
+        )
+        calibrated = cal.calibrate()
+        store[camera_id] = cal.to_dict()
+        return {
+            "status": "calibrated" if calibrated else "needs_more_points",
+            "points": len(cal._points),
+            "calibrated": calibrated,
+        }
+
+    @app.post("/api/calibrate/{camera_id}/reset")
+    def reset_calibration(camera_id: str,
+                          claims: dict = Depends(require(PERM_USERS))):
+        """Reset calibration for a camera."""
+        store = _calibration_store()
+        store.pop(camera_id, None)
+        return {"status": "reset", "camera_id": camera_id}
+
+    @app.post("/api/calibrate/{camera_id}/pixel-to-gps")
+    def pixel_to_gps(camera_id: str, payload: dict = Body(...),
+                     claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """Convert pixel coordinates to GPS coordinates."""
+        from ..calibration import CameraCalibrator
+        store = _calibration_store()
+        data = store.get(camera_id)
+        if data is None:
+            from starlette.responses import JSONResponse as _JR
+            return _JR({"error": f"No calibration for {camera_id}"}, status_code=404)
+        cal = CameraCalibrator.from_dict(data)
+        gps = cal.pixel_to_world(payload["pixel_x"], payload["pixel_y"])
+        if gps is None:
+            return {"error": "Calibration incomplete or point out of FOV"}
+        return {"lat": gps[0], "lng": gps[1], "camera_id": camera_id}
+
+    @app.post("/api/calibrate/{camera_id}/gps-to-pixel")
+    def gps_to_pixel(camera_id: str, payload: dict = Body(...),
+                     claims: dict = Depends(require(PERM_EVIDENCE_READ))):
+        """Convert GPS coordinates to pixel coordinates."""
+        from ..calibration import CameraCalibrator
+        store = _calibration_store()
+        data = store.get(camera_id)
+        if data is None:
+            from starlette.responses import JSONResponse as _JR
+            return _JR({"error": f"No calibration for {camera_id}"}, status_code=404)
+        cal = CameraCalibrator.from_dict(data)
+        px = cal.world_to_pixel(payload["lat"], payload["lng"])
+        if px is None:
+            return {"error": "Calibration incomplete or GPS out of FOV"}
+        return {"pixel_x": px[0], "pixel_y": px[1], "camera_id": camera_id}
 
     return app
